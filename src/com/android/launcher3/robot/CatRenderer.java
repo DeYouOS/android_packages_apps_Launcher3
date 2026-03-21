@@ -12,44 +12,49 @@ import android.graphics.Shader;
 import java.util.Random;
 
 /**
- * 赛博朋克霓虹猫 Canvas 2D 渲染器
+ * 扁平风格 AI 机器人 Canvas 2D 渲染器
  *
- * 使用纯 Canvas Path/drawArc/drawCircle/drawLine 绘制赛博朋克风格的猫咪形象。
- * 所有形状采用「双层霓虹发光」技术：
- * 1. 底层发光（Glow）：加粗描边 + setShadowLayer 大半径 + 主色半透明
- * 2. 顶层核心（Core）：正常描边 + setShadowLayer 小半径 + 白色实线
+ * 使用纯 Canvas Path/drawArc/drawCircle/drawRoundRect 绘制可爱的白色卡通机器人。
+ * 所有形状采用「白色填充 + 深灰描边」的扁平设计风格，眼睛带有青色发光效果。
  *
  * 视觉风格：
  * - 深空星云渐变背景（深紫 #0A0618 → 深蓝 #0C1428）
- * - 主色青 #00D4FF + 强调品红 #FF006B + 核心白 #FFFFFF
+ * - 白色圆头机器人（#F0F0F0 填充 + #3A3A3A 描边）
+ * - 青色发光圆眼（#00D4FF 外环 + #1A1A1A 黑瞳）
+ * - 深色面板/关节（#2D2D2D / #4A4A4A）
  * - 60~80 颗星星粒子 + 流星效果
- * - 表情系统：IDLE（竖瞳眨眼）、EXCITED（绿圆瞳）、SURPRISED（黄大圆瞳）
+ * - 表情系统：IDLE（正常）、EXCITED（眼睛更亮、轻微倾斜）、SURPRISED（眼睛圆睁）
  *
- * 所有尺寸使用 dp 定义（已按 1.45x 缩放），运行时根据 Canvas 密度转 px。
- * 绘制坐标以猫咪 bodyX/bodyY 为原点，各部件相对于原点定位。
+ * 所有尺寸使用 dp 定义，运行时根据 Canvas 密度转 px。
+ * 绘制坐标以机器人 bodyX/bodyY 为原点，各部件相对定位。
  *
  * 绘制顺序（后→前）：
- * 背景星空 → 尾巴 → 后腿 → 身体 → 前腿 → 头部 → 耳朵 → 眼睛 →
- * 鼻嘴 → 胡须 → 爪尖 → 前景粒子
+ * 背景星空 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 面板 → 眼睛 → 额头装饰
  */
 public class CatRenderer {
 
     // ==================== 颜色常量 ====================
 
-    /** 主色调：赛博青（身体轮廓、头部、腿、胡须发光层） */
-    private static final int COLOR_PRIMARY = 0xFF00D4FF;
+    /** 机器人身体白色填充 */
+    private static final int COLOR_BODY_WHITE = 0xFFF0F0F0;
 
-    /** 强调色：品红（耳朵内侧、瞳孔、鼻子、爪尖、兴奋粒子） */
-    private static final int COLOR_ACCENT = 0xFFFF006B;
+    /** 深灰描边色（轮廓线） */
+    private static final int COLOR_OUTLINE = 0xFF3A3A3A;
 
-    /** 核心白：所有线条的核心层颜色 */
+    /** 关节深灰色（肩/肘/腕/膝关节球） */
+    private static final int COLOR_JOINT = 0xFF4A4A4A;
+
+    /** 眼睛青色发光环 */
+    private static final int COLOR_EYE_CYAN = 0xFF00D4FF;
+
+    /** 眼睛黑色瞳孔 */
+    private static final int COLOR_PUPIL = 0xFF1A1A1A;
+
+    /** 面部深色面板（面罩/显示屏区域） */
+    private static final int COLOR_FACE_PANEL = 0xFF2D2D2D;
+
+    /** 核心白：高光和粒子白色 */
     private static final int COLOR_CORE = 0xFFFFFFFF;
-
-    /** 眼睛绿：EXCITED 状态的瞳孔发光色 */
-    private static final int COLOR_EYE_GREEN = 0xFF00FF88;
-
-    /** 惊讶黄：SURPRISED 状态的强调色 */
-    private static final int COLOR_SURPRISED_YELLOW = 0xFFFFE814;
 
     /** 深空背景左下角色：深紫 */
     private static final int COLOR_BG_DEEP_PURPLE = 0xFF0A0618;
@@ -57,152 +62,129 @@ public class CatRenderer {
     /** 深空背景右上角色：深蓝 */
     private static final int COLOR_BG_DEEP_BLUE = 0xFF0C1428;
 
-    // ==================== 尺寸常量（dp，已含 1.45x 缩放） ====================
+    // ==================== 机器人比例尺寸（dp） ====================
+    // 目标：机器人占屏幕高度 ~70%，约 1638px → ~596dp (@2.75x)
+    // 头部 ~45% = ~268dp, 身体 ~25% = ~149dp, 腿+脚 ~30% = ~179dp
 
     // ---- 头部 ----
-    /** 头部宽度 */
-    private static final float HEAD_W = 93f;
-    /** 头部高度 */
-    private static final float HEAD_H = 81f;
-    /** 头部圆角 */
-    private static final float HEAD_R = 29f;
-    /** 头部中心 Y 偏移（相对于猫身体原点） */
-    private static final float HEAD_CY = -75f;
+    /** 头部宽度（dp） */
+    private static final float HEAD_W = 180f;
+    /** 头部高度（dp） */
+    private static final float HEAD_H = 170f;
+    /** 头部圆角半径（dp，接近圆形） */
+    private static final float HEAD_R = 75f;
+    /** 头部中心 Y 偏移（相对于机器人原点） */
+    private static final float HEAD_CY = -160f;
 
-    // ---- 耳朵 ----
-    /** 左耳顶点 A（三角形尖端） */
-    private static final float EAR_L_AX = -41f, EAR_L_AY = -145f;
-    /** 左耳顶点 B（底边左） */
-    private static final float EAR_L_BX = -46f, EAR_L_BY = -87f;
-    /** 左耳顶点 C（底边右） */
-    private static final float EAR_L_CX = -17f, EAR_L_CY = -93f;
-    /** 耳朵描边宽度 */
-    private static final float EAR_STROKE = 3f;
-    /** 耳朵内侧三角缩放比例（相对于质心缩小） */
-    private static final float EAR_INNER_SCALE = 0.7f;
+    // ---- 面部面板（面罩/显示屏） ----
+    /** 面板宽度（dp） */
+    private static final float PANEL_W = 140f;
+    /** 面板高度（dp） */
+    private static final float PANEL_H = 60f;
+    /** 面板圆角（dp） */
+    private static final float PANEL_R = 18f;
+    /** 面板中心 Y 偏移（相对于头部中心） */
+    private static final float PANEL_OFFSET_Y = 8f;
 
-    // ---- 眼眶 ----
-    /** 左眼眶中心 X */
-    private static final float EYE_L_CX = -20f;
-    /** 右眼眶中心 X */
-    private static final float EYE_R_CX = 20f;
-    /** 眼眶中心 Y */
-    private static final float EYE_CY = -81f;
-    /** 眼眶水平半径 */
-    private static final float EYE_RX = 15f;
-    /** 眼眶垂直半径 */
-    private static final float EYE_RY = 17f;
+    // ---- 眼睛 ----
+    /** 左眼中心 X（相对于头部中心，负=左） */
+    private static final float EYE_L_CX = -30f;
+    /** 右眼中心 X（相对于头部中心） */
+    private static final float EYE_R_CX = 30f;
+    /** 眼睛中心 Y（相对于面板中心） */
+    private static final float EYE_CY_OFFSET = 0f;
+    /** 眼睛外环半径（dp） */
+    private static final float EYE_OUTER_R = 18f;
+    /** 眼睛瞳孔半径（dp） */
+    private static final float EYE_PUPIL_R = 8f;
+    /** 眼睛发光环宽度（dp） */
+    private static final float EYE_GLOW_RING_W = 4f;
 
-    // ---- 瞳孔 ----
-    /** 瞳孔水平半径（正常态） */
-    private static final float PUPIL_RX = 6f;
-    /** 瞳孔垂直半径（正常态，竖瞳比横向大） */
-    private static final float PUPIL_RY = 10f;
+    // ---- 额头小点 ----
+    /** 额头小点半径（dp） */
+    private static final float FOREHEAD_DOT_R = 3f;
+    /** 额头小点 Y 偏移（相对于头部顶部） */
+    private static final float FOREHEAD_DOT_Y = 30f;
+    /** 两个额头小点的 X 间距（各一侧，dp） */
+    private static final float FOREHEAD_DOT_SPACING = 12f;
 
-    // ---- 鼻子 ----
-    /** 鼻子中心 Y */
-    private static final float NOSE_CY = -64f;
-    /** 鼻子宽度的一半 */
-    private static final float NOSE_HW = 4.5f;
-    /** 鼻子高度 */
-    private static final float NOSE_H = 6f;
+    // ---- 侧耳（耳机垫块） ----
+    /** 侧耳块宽度（dp） */
+    private static final float EAR_BLOCK_W = 22f;
+    /** 侧耳块高度（dp） */
+    private static final float EAR_BLOCK_H = 55f;
+    /** 侧耳块圆角（dp） */
+    private static final float EAR_BLOCK_R = 8f;
+    /** 侧耳块 X 偏移（从头部边缘向外，dp） */
+    private static final float EAR_BLOCK_OFFSET_X = 2f;
+    /** 侧耳块青色点缀线宽度（dp） */
+    private static final float EAR_ACCENT_LINE_W = 2f;
 
-    // ---- 嘴巴 ----
-    /** 嘴巴贝塞尔弧线每侧宽度 */
-    private static final float MOUTH_SIDE_W = 12f;
+    // ---- 脖子 ----
+    /** 脖子宽度（dp） */
+    private static final float NECK_W = 28f;
+    /** 脖子高度（dp） */
+    private static final float NECK_H = 18f;
 
-    // ---- 胡须 ----
-    /** 左侧胡须起点 X */
-    private static final float WHISKER_L_X = -26f;
-    /** 右侧胡须起点 X */
-    private static final float WHISKER_R_X = 26f;
-    /** 胡须起点 Y */
-    private static final float WHISKER_Y = -67f;
-    /** 胡须长度 */
-    private static final float WHISKER_LEN = 35f;
-    /** 胡须描边宽度 */
-    private static final float WHISKER_STROKE = 2f;
+    // ---- 身体（盾形/心形躯干） ----
+    /** 身体顶部宽度（dp） */
+    private static final float BODY_TOP_W = 120f;
+    /** 身体最大宽度（dp，中部肩膀处） */
+    private static final float BODY_MID_W = 130f;
+    /** 身体高度（dp） */
+    private static final float BODY_H = 120f;
+    /** 身体顶部 Y 偏移（相对于原点，脖子下方） */
+    private static final float BODY_TOP_Y = -58f;
+    /** 身体圆角（dp） */
+    private static final float BODY_R = 25f;
 
-    // ---- 身体（梯形） ----
-    /** 身体顶部宽度 */
-    private static final float BODY_TOP_W = 70f;
-    /** 身体底部宽度 */
-    private static final float BODY_BOT_W = 81f;
-    /** 身体顶部 Y */
-    private static final float BODY_TOP_Y = -35f;
-    /** 身体底部 Y */
-    private static final float BODY_BOT_Y = 58f;
-    /** 身体圆角半径 */
-    private static final float BODY_CORNER_R = 17f;
+    // ---- 手臂 ----
+    /** 上臂长度（dp） */
+    private static final float ARM_UPPER_LEN = 55f;
+    /** 前臂长度（dp） */
+    private static final float ARM_FOREARM_LEN = 50f;
+    /** 手臂管宽度（dp） */
+    private static final float ARM_TUBE_W = 16f;
+    /** 关节球半径（dp） */
+    private static final float JOINT_R = 7f;
+    /** 肩膀关节 Y（相对于身体顶部，dp） */
+    private static final float SHOULDER_Y_OFFSET = 15f;
+    /** 手指数量 */
+    private static final int FINGER_COUNT = 4;
+    /** 手指长度（dp） */
+    private static final float FINGER_LEN = 10f;
+    /** 手指宽度（dp） */
+    private static final float FINGER_W = 4f;
 
-    // ---- 胸部高光 ----
-    /** 胸部高光中心 Y */
-    private static final float CHEST_CY = -14f;
-    /** 胸部高光水平半径 */
-    private static final float CHEST_RX = 23f;
-    /** 胸部高光垂直半径 */
-    private static final float CHEST_RY = 29f;
-    /** 胸部高光扫过角度 */
-    private static final float CHEST_SWEEP = 160f;
+    // ---- 臀部连接器 ----
+    /** 臀部连接块高度（dp） */
+    private static final float HIP_H = 12f;
+    /** 臀部连接块宽度（dp） */
+    private static final float HIP_W = 50f;
 
-    // ---- 前腿 ----
-    /** 前腿枢轴 Y */
-    private static final float FLEG_PIVOT_Y = 44f;
-    /** 前腿枢轴 X（左/右对称） */
-    private static final float FLEG_PIVOT_X = 26f;
-    /** 前腿上部宽度 */
-    private static final float FLEG_UPPER_W = 15f;
-    /** 前腿下部宽度 */
-    private static final float FLEG_LOWER_W = 10f;
-    /** 前腿长度 */
-    private static final float FLEG_LEN = 52f;
+    // ---- 腿 ----
+    /** 腿长度（dp） */
+    private static final float LEG_LEN = 55f;
+    /** 腿管宽度（dp） */
+    private static final float LEG_TUBE_W = 18f;
+    /** 左腿 X 偏移（dp） */
+    private static final float LEG_X_OFFSET = 22f;
 
-    // ---- 后腿 ----
-    /** 后腿枢轴 Y */
-    private static final float BLEG_PIVOT_Y = 55f;
-    /** 后腿枢轴 X（左/右对称） */
-    private static final float BLEG_PIVOT_X = 32f;
-    /** 后腿上部宽度 */
-    private static final float BLEG_UPPER_W = 17f;
-    /** 后腿下部宽度 */
-    private static final float BLEG_LOWER_W = 12f;
-    /** 后腿长度 */
-    private static final float BLEG_LEN = 46f;
-    /** 后腿膝盖弯曲角度 */
-    private static final float BLEG_KNEE_BEND = 15f;
+    // ---- 脚/靴子 ----
+    /** 靴子宽度（dp） */
+    private static final float BOOT_W = 38f;
+    /** 靴子高度（dp） */
+    private static final float BOOT_H = 28f;
+    /** 靴子圆角（dp） */
+    private static final float BOOT_R = 10f;
+    /** 靴子侧面圆形点缀半径（dp） */
+    private static final float BOOT_CIRCLE_R = 5f;
 
-    // ---- 脚掌 ----
-    /** 脚掌水平半径 */
-    private static final float PAW_RX = 9f;
-    /** 脚掌垂直半径 */
-    private static final float PAW_RY = 6f;
-
-    // ---- 爪尖 ----
-    /** 爪尖弧线长度 */
-    private static final float CLAW_LEN = 4f;
-
-    // ---- 尾巴连接点 ----
-    /** 尾巴连接 X（相对身体中心） */
-    private static final float TAIL_CONN_X = 6f;
-    /** 尾巴连接 Y（相对身体中心） */
-    private static final float TAIL_CONN_Y = 61f;
-
-    // ---- 尾巴段长度（根→尖） ----
-    private static final float[] TAIL_LENGTHS = {20f, 19f, 17f, 15f, 12f, 9f};
-    /** 尾巴段描边宽度（根→尖递减） */
-    private static final float[] TAIL_WIDTHS = {7f, 6.5f, 5.8f, 4.4f, 3.6f, 2.2f};
-
-    // ---- 发光半径（dp，乘以 glowIntensity） ----
-    private static final float GLOW_HEAD = 17f, CORE_HEAD = 6f;
-    private static final float GLOW_EAR = 15f, CORE_EAR = 4f;
-    private static final float GLOW_BODY = 20f, CORE_BODY = 7f;
-    private static final float GLOW_LEG = 15f, CORE_LEG = 4f;
-    private static final float GLOW_TAIL = 17f, CORE_TAIL = 6f;
-    private static final float GLOW_WHISKER = 12f, CORE_WHISKER = 3f;
-    private static final float GLOW_EYE = 15f, CORE_EYE = 6f;
-
-    /** 霓虹发光额外描边宽度增量 */
-    private static final float GLOW_EXTRA_STROKE = 6f;
+    // ---- 描边宽度常量 ----
+    /** 主轮廓描边宽度（dp） */
+    private static final float STROKE_W = 2f;
+    /** 细节描边宽度（dp） */
+    private static final float STROKE_THIN = 1.5f;
 
     // ==================== 星空背景参数 ====================
 
@@ -214,41 +196,47 @@ public class CatRenderer {
 
     // ==================== 复用绘制对象 ====================
 
-    /** 主色发光层画笔（青色大 shadowLayer，加粗描边） */
-    private final Paint mPrimaryGlow;
+    /** 白色填充画笔（机器人主体填充） */
+    private final Paint mFillPaint;
 
-    /** 主色核心层画笔（白色线条，小 shadowLayer） */
-    private final Paint mPrimaryCore;
+    /** 深灰描边画笔（轮廓线） */
+    private final Paint mStrokePaint;
 
-    /** 强调色发光层画笔（品红大 shadowLayer） */
-    private final Paint mAccentGlow;
+    /** 关节/面板深色填充画笔 */
+    private final Paint mDarkFillPaint;
 
-    /** 强调色核心层画笔（白色线条，品红小 shadowLayer） */
-    private final Paint mAccentCore;
+    /** 眼睛发光画笔（青色环 + shadowLayer 辉光） */
+    private final Paint mEyeGlowPaint;
 
-    /** 眼睛专用画笔（颜色随表情变化） */
-    private final Paint mEyePaint;
+    /** 眼睛核心画笔（瞳孔黑色填充） */
+    private final Paint mEyeCorePaint;
 
-    /** 粒子/星空画笔 */
+    /** 粒子/星空/背景通用画笔 */
     private final Paint mParticlePaint;
 
-    /** 复用 Path 对象：身体梯形 */
+    /** 青色点缀线画笔（耳朵、靴子装饰） */
+    private final Paint mAccentPaint;
+
+    /** 复用 Path：身体轮廓 */
     private final Path mBodyPath;
-    /** 复用 Path 对象：头部 */
+
+    /** 复用 Path：头部轮廓 */
     private final Path mHeadPath;
-    /** 复用 Path 对象：耳朵 */
-    private final Path mEarPath;
-    /** 复用 Path 对象：耳朵内侧 */
-    private final Path mEarInnerPath;
-    /** 复用 Path 对象：腿部 */
+
+    /** 复用 Path：手臂 */
+    private final Path mArmPath;
+
+    /** 复用 Path：腿部 */
     private final Path mLegPath;
-    /** 复用 Path 对象：嘴巴 */
-    private final Path mMouthPath;
-    /** 复用 Path 对象：通用临时 */
+
+    /** 复用 Path：通用临时 */
     private final Path mTempPath;
 
     /** 复用矩形对象 */
     private final RectF mTempRect;
+
+    /** 复用矩形对象 2（避免嵌套时冲突） */
+    private final RectF mTempRect2;
 
     /** 屏幕密度（dp→px 转换因子） */
     private float mDensity = 2.75f;
@@ -301,27 +289,27 @@ public class CatRenderer {
     private float mLastIdleTimer = 0f;
 
     /**
-     * 构造霓虹猫渲染器
+     * 构造 AI 机器人渲染器
      *
-     * 预创建 6 个 Paint 对象和 7 个 Path 对象，避免每帧 new。
-     * Paint 参数在每帧 draw() 中按需设置。
+     * 预创建所有 Paint 和 Path 对象，避免每帧 new 导致 GC 压力。
+     * Paint 参数在各绘制方法中按需设置。
      */
     public CatRenderer() {
-        mPrimaryGlow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mPrimaryCore = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mAccentGlow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mAccentCore = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mEyePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mDarkFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mEyeGlowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mEyeCorePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mParticlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mAccentPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         mBodyPath = new Path();
         mHeadPath = new Path();
-        mEarPath = new Path();
-        mEarInnerPath = new Path();
+        mArmPath = new Path();
         mLegPath = new Path();
-        mMouthPath = new Path();
         mTempPath = new Path();
         mTempRect = new RectF();
+        mTempRect2 = new RectF();
     }
 
     /**
@@ -337,11 +325,13 @@ public class CatRenderer {
     /**
      * 主绘制入口
      *
-     * 按照从后到前的层次绘制所有部件，实现完整的霓虹猫视觉效果。
+     * 按照从后到前的层次绘制所有部件，实现完整的 AI 机器人视觉效果。
      * 每帧由 RobotRenderThread 调用。
      *
+     * 绘制顺序：背景 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 侧耳 → 面板 → 眼睛 → 额头点
+     *
      * @param canvas 绘制目标画布（来自 TextureView.lockCanvas，软件渲染模式）
-     * @param state  当前猫咪动画状态（位置、表情、耳朵、尾巴等参数）
+     * @param state  当前机器人动画状态（位置、表情、眼睛参数等）
      */
     public void draw(Canvas canvas, RobotState state) {
         // 从 Canvas 获取密度（TextureView lockCanvas 可能返回特殊值）
@@ -353,34 +343,42 @@ public class CatRenderer {
         float sw = state.screenWidth > 0 ? state.screenWidth : canvas.getWidth();
         float sh = state.screenHeight > 0 ? state.screenHeight : canvas.getHeight();
 
-        // 绘制深空星云渐变背景（替代透明清屏，让背景有氛围感）
+        // 绘制深空星云渐变背景
         drawBackground(canvas, sw, sh, state);
 
         canvas.save();
 
-        // 平移到猫咪身体中心，下移补偿去掉下半身后的视觉重心偏移
-        canvas.translate(state.bodyX, state.bodyY + sh * 0.22f);
+        // 平移到机器人身体中心（bodyY 默认 sh/2，向上偏移让机器人居中偏上）
+        canvas.translate(state.bodyX, state.bodyY - sh * 0.05f);
 
-        // 呼吸浮动 + 旋转
-        float bobOffset = (float) Math.sin(state.idleTimer * 1.8) * dp(4f);
+        // 呼吸浮动 + 旋转（利用 idleTimer 产生缓慢上下浮动效果）
+        float bobOffset = (float) Math.sin(state.idleTimer * 1.2) * dp(5f);
         canvas.translate(0, bobOffset);
         canvas.rotate(state.rotation);
 
-        // 呼吸缩放 × 上半身放大倍率（1.8x），让头部占满更多屏幕空间
-        float scale = state.bodyScale * 1.8f;
+        // 呼吸缩放（bodyScale 在 0.98~1.02 范围，保持机器人自然呼吸感）
+        float scale = state.bodyScale;
         if (scale > 0.01f) {
             canvas.scale(scale, scale);
         }
 
+        // 表情影响：EXCITED 时轻微前倾
+        if (state.expression == RobotState.Expression.EXCITED) {
+            canvas.rotate(2f * state.expressionBlend);
+        }
+
         float glow = state.glowIntensity;
 
-        // ---- 绘制顺序：后→前（仅上半身，去掉尾巴/后腿/前腿/爪尖） ----
+        // ---- 绘制顺序：后→前 ----
+        drawLegsAndFeet(canvas, state, glow);
         drawBody(canvas, state, glow);
+        drawArms(canvas, state, glow);
+        drawNeck(canvas, state, glow);
         drawHead(canvas, state, glow);
-        drawEars(canvas, state, glow);
+        drawEarBlocks(canvas, state, glow);
+        drawFacePanel(canvas, state, glow);
         drawEyes(canvas, state, glow);
-        drawNoseMouth(canvas, state, glow);
-        drawWhiskers(canvas, state, glow);
+        drawForeheadDots(canvas, state, glow);
 
         canvas.restore();
     }
@@ -549,233 +547,441 @@ public class CatRenderer {
         }
     }
 
-    // ==================== 尾巴 ====================
+    // ==================== 腿和脚 ====================
 
     /**
-     * 绘制尾巴（6 段弹簧链）
+     * 绘制双腿和靴子
      *
-     * 从身体连接点开始，依次绘制 6 段逐渐变细的线段。
-     * 每段角度由 TailPhysics 驱动的 state.tailAngles 控制。
-     *
-     * @param canvas   画布
-     * @param state    猫咪状态
-     * @param glow     当前发光强度
-     * @param isGlow   true=绘制发光层，false=绘制核心层
-     */
-    private void drawTail(Canvas canvas, RobotState state, float glow, boolean isGlow) {
-        float connX = dp(TAIL_CONN_X);
-        float connY = dp(TAIL_CONN_Y);
-
-        canvas.save();
-        canvas.translate(connX, connY);
-
-        // 累积角度计算每段的绝对方向
-        float cumAngle = 0f;
-        float curX = 0f;
-        float curY = 0f;
-
-        for (int i = 0; i < 6; i++) {
-            cumAngle += state.tailAngles[i];
-            float rad = (float) Math.toRadians(cumAngle);
-            float segLen = dp(TAIL_LENGTHS[i]);
-            float nextX = curX + (float) Math.sin(rad) * segLen;
-            float nextY = curY + (float) Math.cos(rad) * segLen;
-
-            Paint p;
-            if (isGlow) {
-                // 发光层：加粗 + 大 shadowLayer + 半透明主色
-                p = mPrimaryGlow;
-                p.setStyle(Paint.Style.STROKE);
-                p.setStrokeWidth(dp(TAIL_WIDTHS[i]) + dp(GLOW_EXTRA_STROKE));
-                p.setStrokeCap(Paint.Cap.ROUND);
-                p.setColor(setAlpha(COLOR_PRIMARY, 0xCC));
-                p.setShadowLayer(dp(GLOW_TAIL) * glow, 0, 0, COLOR_PRIMARY);
-            } else {
-                // 核心层：正常宽度 + 小 shadowLayer + 白色
-                p = mPrimaryCore;
-                p.setStyle(Paint.Style.STROKE);
-                p.setStrokeWidth(dp(TAIL_WIDTHS[i]));
-                p.setStrokeCap(Paint.Cap.ROUND);
-                p.setColor(COLOR_CORE);
-                p.setShadowLayer(dp(CORE_TAIL) * glow, 0, 0, COLOR_PRIMARY);
-            }
-
-            canvas.drawLine(curX, curY, nextX, nextY, p);
-            curX = nextX;
-            curY = nextY;
-        }
-
-        canvas.restore();
-    }
-
-    // ==================== 后腿 ====================
-
-    /**
-     * 绘制后腿（左右对称，带膝盖弯曲）
-     *
-     * 后腿从身体底部两侧延伸，有 15° 的膝盖弯曲角度。
-     * 由锥形 Path（上宽下窄）绘制，底部有椭圆脚掌。
+     * 两条短腿从臀部连接器向下延伸，底部是大块状靴子。
+     * 腿部为白色管状 + 暗色膝关节球 + 白色靴子配青色圆形装饰。
      *
      * @param canvas 画布
-     * @param state  猫咪状态
+     * @param state  机器人状态
      * @param glow   发光强度
      */
-    private void drawBackLegs(Canvas canvas, RobotState state, float glow) {
-        drawLeg(canvas, -dp(BLEG_PIVOT_X), dp(BLEG_PIVOT_Y),
-                dp(BLEG_UPPER_W), dp(BLEG_LOWER_W), dp(BLEG_LEN),
-                BLEG_KNEE_BEND, glow, true);
-        drawLeg(canvas, dp(BLEG_PIVOT_X), dp(BLEG_PIVOT_Y),
-                dp(BLEG_UPPER_W), dp(BLEG_LOWER_W), dp(BLEG_LEN),
-                -BLEG_KNEE_BEND, glow, true);
+    private void drawLegsAndFeet(Canvas canvas, RobotState state, float glow) {
+        // 臀部连接器（深色矩形）
+        float hipY = dp(BODY_TOP_Y) + dp(BODY_H);
+        mTempRect.set(-dp(HIP_W) / 2f, hipY, dp(HIP_W) / 2f, hipY + dp(HIP_H));
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, dp(4f), dp(4f), mDarkFillPaint);
+
+        // 腿起始 Y（臀部底部）
+        float legTopY = hipY + dp(HIP_H);
+
+        // 左腿
+        drawSingleLeg(canvas, -dp(LEG_X_OFFSET), legTopY, glow);
+        // 右腿
+        drawSingleLeg(canvas, dp(LEG_X_OFFSET), legTopY, glow);
+    }
+
+    /**
+     * 绘制单条腿（膝关节球 + 白色管 + 靴子）
+     *
+     * @param canvas 画布
+     * @param cx     腿中心 X（px）
+     * @param topY   腿顶部 Y（px）
+     * @param glow   发光强度
+     */
+    private void drawSingleLeg(Canvas canvas, float cx, float topY, float glow) {
+        float tubeW = dp(LEG_TUBE_W);
+        float legLen = dp(LEG_LEN);
+        float halfW = tubeW / 2f;
+
+        // 膝关节球（在腿中段）
+        float kneeY = topY + legLen * 0.45f;
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawCircle(cx, kneeY, dp(JOINT_R), mDarkFillPaint);
+
+        // 腿管（白色填充 + 深灰描边）
+        mTempRect.set(cx - halfW, topY, cx + halfW, topY + legLen);
+        mFillPaint.setStyle(Paint.Style.FILL);
+        mFillPaint.setColor(COLOR_BODY_WHITE);
+        mFillPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, dp(6f), dp(6f), mFillPaint);
+
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_W));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, dp(6f), dp(6f), mStrokePaint);
+
+        // 再绘制膝关节球（覆盖在管上方以形成层次）
+        canvas.drawCircle(cx, kneeY, dp(JOINT_R), mDarkFillPaint);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        canvas.drawCircle(cx, kneeY, dp(JOINT_R), mStrokePaint);
+
+        // 靴子（大块状白色 + 深灰描边 + 青色圆形装饰）
+        float bootY = topY + legLen;
+        float bootW = dp(BOOT_W);
+        float bootH = dp(BOOT_H);
+        mTempRect.set(cx - bootW / 2f, bootY, cx + bootW / 2f, bootY + bootH);
+
+        // 靴子白色填充
+        mFillPaint.setColor(COLOR_BODY_WHITE);
+        canvas.drawRoundRect(mTempRect, dp(BOOT_R), dp(BOOT_R), mFillPaint);
+
+        // 靴子深灰描边
+        mStrokePaint.setStrokeWidth(dp(STROKE_W));
+        canvas.drawRoundRect(mTempRect, dp(BOOT_R), dp(BOOT_R), mStrokePaint);
+
+        // 靴子侧面青色圆形装饰
+        float circleX = cx + bootW * 0.2f;
+        float circleY = bootY + bootH * 0.45f;
+        mAccentPaint.setStyle(Paint.Style.STROKE);
+        mAccentPaint.setStrokeWidth(dp(EAR_ACCENT_LINE_W));
+        mAccentPaint.setColor(COLOR_EYE_CYAN);
+        mAccentPaint.clearShadowLayer();
+        canvas.drawCircle(circleX, circleY, dp(BOOT_CIRCLE_R), mAccentPaint);
     }
 
     // ==================== 身体 ====================
 
     /**
-     * 绘制身体梯形（上窄下宽，带圆角）
+     * 绘制机器人躯干（盾形/心形白色体）
      *
-     * 身体是一个上部 70dp 宽、下部 81dp 宽的圆角梯形。
-     * 叠加胸部半透明弧形高光增强层次感。
+     * 上部宽圆肩，向下收窄成圆弧底部，形成可爱的盾牌/心形造型。
+     * 白色填充 + 深灰轮廓描边。
      *
      * @param canvas 画布
-     * @param state  猫咪状态
+     * @param state  机器人状态
      * @param glow   发光强度
      */
     private void drawBody(Canvas canvas, RobotState state, float glow) {
-        float topHW = dp(BODY_TOP_W) / 2f;
         float topY = dp(BODY_TOP_Y);
-        // 上半身：只画到胸部位置（原身体高度的 40%），底部弧形收尾
-        float midY = topY + (dp(BODY_BOT_Y) - topY) * 0.4f;
-        float midHW = topHW + (dp(BODY_BOT_W) / 2f - topHW) * 0.4f;
-        float cr = dp(BODY_CORNER_R);
+        float topHW = dp(BODY_TOP_W) / 2f;
+        float midHW = dp(BODY_MID_W) / 2f;
+        float h = dp(BODY_H);
+        float r = dp(BODY_R);
+        float botY = topY + h;
 
+        // 构建盾形 Path：顶部圆角矩形 → 中部最宽处 → 底部圆弧收窄
         mBodyPath.reset();
-        mBodyPath.moveTo(-topHW + cr, topY);
-        mBodyPath.lineTo(topHW - cr, topY);
-        mBodyPath.quadTo(topHW, topY, topHW, topY + cr);
+        // 从左上角开始
+        mBodyPath.moveTo(-topHW + r, topY);
+        mBodyPath.lineTo(topHW - r, topY);
+        // 右上圆角
+        mBodyPath.quadTo(topHW, topY, topHW, topY + r);
+        // 右侧向外扩展到中部最宽处
+        float midY = topY + h * 0.35f;
         mBodyPath.lineTo(midHW, midY);
-        mBodyPath.quadTo(0, midY + dp(18f), -midHW, midY);
-        mBodyPath.lineTo(-topHW, topY + cr);
-        mBodyPath.quadTo(-topHW, topY, -topHW + cr, topY);
+        // 右侧向下收窄到底部
+        mBodyPath.quadTo(midHW, botY - dp(10f), dp(15f), botY);
+        // 底部圆弧
+        mBodyPath.quadTo(0, botY + dp(10f), -dp(15f), botY);
+        // 左侧向上
+        mBodyPath.quadTo(-midHW, botY - dp(10f), -midHW, midY);
+        // 左侧回到顶部
+        mBodyPath.lineTo(-topHW, topY + r);
+        // 左上圆角
+        mBodyPath.quadTo(-topHW, topY, -topHW + r, topY);
         mBodyPath.close();
 
-        // 发光层
-        setupGlowPaint(mPrimaryGlow, COLOR_PRIMARY, dp(2f) + dp(GLOW_EXTRA_STROKE),
-                dp(GLOW_BODY) * glow);
-        canvas.drawPath(mBodyPath, mPrimaryGlow);
+        // 白色填充
+        mFillPaint.setStyle(Paint.Style.FILL);
+        mFillPaint.setColor(COLOR_BODY_WHITE);
+        mFillPaint.clearShadowLayer();
+        canvas.drawPath(mBodyPath, mFillPaint);
 
-        // 核心层
-        setupCorePaint(mPrimaryCore, COLOR_PRIMARY, dp(2f), dp(CORE_BODY) * glow);
-        canvas.drawPath(mBodyPath, mPrimaryCore);
-
-        // 胸部高光弧线（半透明强调色）
-        mTempRect.set(-dp(CHEST_RX), dp(CHEST_CY) - dp(CHEST_RY),
-                dp(CHEST_RX), dp(CHEST_CY) + dp(CHEST_RY));
-        mAccentGlow.setStyle(Paint.Style.STROKE);
-        mAccentGlow.setStrokeWidth(dp(2f));
-        mAccentGlow.setStrokeCap(Paint.Cap.ROUND);
-        mAccentGlow.setColor(setAlpha(COLOR_ACCENT, 0x66));
-        mAccentGlow.setShadowLayer(dp(8f) * glow, 0, 0, setAlpha(COLOR_ACCENT, 0x44));
-        canvas.drawArc(mTempRect, 190f, CHEST_SWEEP, false, mAccentGlow);
+        // 深灰描边
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_W));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawPath(mBodyPath, mStrokePaint);
     }
 
-    // ==================== 前腿 ====================
+    // ==================== 手臂 ====================
 
     /**
-     * 绘制前腿（左右对称，直线无膝盖弯曲）
+     * 绘制双臂（左臂自然下垂 + 右臂举起挥手）
+     *
+     * 每条手臂由上臂 + 前臂 + 手组成，各段之间用深色关节球连接。
+     * 右臂有基于 idleTimer 的挥手摆动动画。
      *
      * @param canvas 画布
-     * @param state  猫咪状态
+     * @param state  机器人状态
      * @param glow   发光强度
      */
-    private void drawFrontLegs(Canvas canvas, RobotState state, float glow) {
-        drawLeg(canvas, -dp(FLEG_PIVOT_X), dp(FLEG_PIVOT_Y),
-                dp(FLEG_UPPER_W), dp(FLEG_LOWER_W), dp(FLEG_LEN),
-                0, glow, false);
-        drawLeg(canvas, dp(FLEG_PIVOT_X), dp(FLEG_PIVOT_Y),
-                dp(FLEG_UPPER_W), dp(FLEG_LOWER_W), dp(FLEG_LEN),
-                0, glow, false);
+    private void drawArms(Canvas canvas, RobotState state, float glow) {
+        float shoulderY = dp(BODY_TOP_Y) + dp(SHOULDER_Y_OFFSET);
+        float bodyMidHW = dp(BODY_MID_W) / 2f;
+
+        // 左臂（自然下垂）：肩膀在身体左侧
+        drawLeftArm(canvas, -bodyMidHW, shoulderY, state, glow);
+
+        // 右臂（举起挥手）：肩膀在身体右侧
+        drawRightArm(canvas, bodyMidHW, shoulderY, state, glow);
     }
 
     /**
-     * 绘制单条腿（锥形渐细 + 脚掌椭圆）
+     * 绘制左臂（自然下垂姿态）
      *
-     * 腿部使用两条线段模拟锥形（上宽下窄），底部绘制椭圆脚掌。
-     * 支持膝盖弯曲角度（用于后腿）。
+     * 上臂向下偏左约 15°，前臂继续向下略向内弯曲。
      *
-     * @param canvas   画布
-     * @param pivotX   枢轴 X（px）
-     * @param pivotY   枢轴 Y（px）
-     * @param upperW   上部宽度（px）
-     * @param lowerW   下部宽度（px）
-     * @param length   腿长（px）
-     * @param kneeBend 膝盖弯曲角度（度），0 为直腿
-     * @param glow     发光强度
-     * @param isBack   是否为后腿（影响绘制层级细节）
+     * @param canvas    画布
+     * @param shoulderX 肩膀关节 X（px）
+     * @param shoulderY 肩膀关节 Y（px）
+     * @param state     机器人状态
+     * @param glow      发光强度
      */
-    private void drawLeg(Canvas canvas, float pivotX, float pivotY,
-                         float upperW, float lowerW, float length,
-                         float kneeBend, float glow, boolean isBack) {
+    private void drawLeftArm(Canvas canvas, float shoulderX, float shoulderY,
+                             RobotState state, float glow) {
         canvas.save();
-        canvas.translate(pivotX, pivotY);
+        canvas.translate(shoulderX, shoulderY);
 
-        float halfLen = length / 2f;
-        float kneeRad = (float) Math.toRadians(kneeBend);
-        // 上半段终点
-        float midX = (float) Math.sin(kneeRad) * halfLen;
-        float midY = (float) Math.cos(kneeRad) * halfLen;
-        // 下半段终点（从膝盖继续向下）
-        float endX = midX;
-        float endY = midY + halfLen;
+        // 上臂方向：向下偏左 15°
+        float upperAngle = (float) Math.toRadians(-105f); // -90(下) -15(左偏)
+        float upperLen = dp(ARM_UPPER_LEN);
+        float elbowX = (float) Math.cos(upperAngle) * upperLen;
+        float elbowY = (float) Math.sin(upperAngle) * upperLen;
 
-        // 构建锥形 Path
-        mLegPath.reset();
-        mLegPath.moveTo(-upperW / 2f, 0);
-        mLegPath.lineTo(-lowerW / 2f, midY);
-        mLegPath.lineTo(-lowerW / 2f + 1, endY);
-        mLegPath.lineTo(lowerW / 2f - 1, endY);
-        mLegPath.lineTo(lowerW / 2f, midY);
-        mLegPath.lineTo(upperW / 2f, 0);
-        mLegPath.close();
+        // 绘制上臂管
+        drawArmTube(canvas, 0, 0, elbowX, elbowY, dp(ARM_TUBE_W));
 
-        // 发光层
-        setupGlowPaint(mPrimaryGlow, COLOR_PRIMARY, dp(2f) + dp(GLOW_EXTRA_STROKE),
-                dp(GLOW_LEG) * glow);
-        canvas.drawPath(mLegPath, mPrimaryGlow);
+        // 肘关节球
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mDarkFillPaint);
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mStrokePaint);
 
-        // 核心层
-        setupCorePaint(mPrimaryCore, COLOR_PRIMARY, dp(2f), dp(CORE_LEG) * glow);
-        canvas.drawPath(mLegPath, mPrimaryCore);
+        // 前臂方向：继续向下偏内 10°
+        float forearmAngle = (float) Math.toRadians(-80f);
+        float forearmLen = dp(ARM_FOREARM_LEN);
+        float wristX = elbowX + (float) Math.cos(forearmAngle) * forearmLen;
+        float wristY = elbowY + (float) Math.sin(forearmAngle) * forearmLen;
 
-        // 脚掌椭圆
-        float pawCX = (midX + endX) / 2f;
-        mTempRect.set(pawCX - dp(PAW_RX), endY - dp(PAW_RY),
-                pawCX + dp(PAW_RX), endY + dp(PAW_RY));
-        // 发光层
-        mPrimaryGlow.setStyle(Paint.Style.STROKE);
-        mPrimaryGlow.setStrokeWidth(dp(2f) + dp(4f));
-        mPrimaryGlow.setColor(setAlpha(COLOR_PRIMARY, 0xCC));
-        mPrimaryGlow.setShadowLayer(dp(GLOW_LEG) * glow, 0, 0, COLOR_PRIMARY);
-        canvas.drawOval(mTempRect, mPrimaryGlow);
-        // 核心层
-        mPrimaryCore.setStyle(Paint.Style.STROKE);
-        mPrimaryCore.setStrokeWidth(dp(2f));
-        mPrimaryCore.setColor(COLOR_CORE);
-        mPrimaryCore.setShadowLayer(dp(CORE_LEG) * glow, 0, 0, COLOR_PRIMARY);
-        canvas.drawOval(mTempRect, mPrimaryCore);
+        // 绘制前臂管
+        drawArmTube(canvas, elbowX, elbowY, wristX, wristY, dp(ARM_TUBE_W) * 0.85f);
+
+        // 腕关节球
+        canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mDarkFillPaint);
+        canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mStrokePaint);
+
+        // 绘制手（手指散开）
+        drawHand(canvas, wristX, wristY, forearmAngle, false);
+
+        // 肩关节球（最后画以覆盖在管上方）
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        canvas.drawCircle(0, 0, dp(JOINT_R), mDarkFillPaint);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        canvas.drawCircle(0, 0, dp(JOINT_R), mStrokePaint);
 
         canvas.restore();
+    }
+
+    /**
+     * 绘制右臂（举起挥手姿态，带摆动动画）
+     *
+     * 上臂向上偏右约 45°，前臂向上再弯曲，手在最高点挥动。
+     * 利用 state.idleTimer 驱动细微的挥手摆动。
+     *
+     * @param canvas    画布
+     * @param shoulderX 肩膀关节 X（px）
+     * @param shoulderY 肩膀关节 Y（px）
+     * @param state     机器人状态
+     * @param glow      发光强度
+     */
+    private void drawRightArm(Canvas canvas, float shoulderX, float shoulderY,
+                              RobotState state, float glow) {
+        canvas.save();
+        canvas.translate(shoulderX, shoulderY);
+
+        // 挥手摆动动画：上臂角度随 idleTimer 微幅变化
+        float waveOsc = (float) Math.sin(state.idleTimer * 3.0) * 8f; // ±8° 摆动
+
+        // 上臂方向：向上偏右（约 -45° + 摆动）
+        float upperAngleDeg = -45f + waveOsc;
+        float upperAngle = (float) Math.toRadians(upperAngleDeg);
+        float upperLen = dp(ARM_UPPER_LEN);
+        float elbowX = (float) Math.cos(upperAngle) * upperLen;
+        float elbowY = (float) Math.sin(upperAngle) * upperLen;
+
+        // 绘制上臂管
+        drawArmTube(canvas, 0, 0, elbowX, elbowY, dp(ARM_TUBE_W));
+
+        // 肘关节球
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mDarkFillPaint);
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mStrokePaint);
+
+        // 前臂方向：从肘部向上（约 -110° + 摆动的一半）
+        float forearmAngleDeg = -110f + waveOsc * 0.5f;
+        float forearmAngle = (float) Math.toRadians(forearmAngleDeg);
+        float forearmLen = dp(ARM_FOREARM_LEN);
+        float wristX = elbowX + (float) Math.cos(forearmAngle) * forearmLen;
+        float wristY = elbowY + (float) Math.sin(forearmAngle) * forearmLen;
+
+        // 绘制前臂管
+        drawArmTube(canvas, elbowX, elbowY, wristX, wristY, dp(ARM_TUBE_W) * 0.85f);
+
+        // 腕关节球
+        canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mDarkFillPaint);
+        canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mStrokePaint);
+
+        // 绘制手（张开的挥手姿势）
+        drawHand(canvas, wristX, wristY, forearmAngle, true);
+
+        // 肩关节球（最后画）
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        canvas.drawCircle(0, 0, dp(JOINT_R), mDarkFillPaint);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        canvas.drawCircle(0, 0, dp(JOINT_R), mStrokePaint);
+
+        canvas.restore();
+    }
+
+    /**
+     * 绘制手臂管段（白色圆角矩形沿方向旋转）
+     *
+     * 在起点到终点之间绘制一个旋转的圆角矩形管。
+     *
+     * @param canvas 画布
+     * @param x1     起点 X（px）
+     * @param y1     起点 Y（px）
+     * @param x2     终点 X（px）
+     * @param y2     终点 Y（px）
+     * @param width  管宽度（px）
+     */
+    private void drawArmTube(Canvas canvas, float x1, float y1, float x2, float y2,
+                             float width) {
+        float dx = x2 - x1;
+        float dy = y2 - y1;
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        float angleDeg = (float) Math.toDegrees(Math.atan2(dy, dx));
+
+        canvas.save();
+        canvas.translate(x1, y1);
+        canvas.rotate(angleDeg);
+
+        float halfW = width / 2f;
+        mTempRect.set(0, -halfW, len, halfW);
+
+        // 白色填充
+        mFillPaint.setStyle(Paint.Style.FILL);
+        mFillPaint.setColor(COLOR_BODY_WHITE);
+        mFillPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, halfW, halfW, mFillPaint);
+
+        // 深灰描边
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_W));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, halfW, halfW, mStrokePaint);
+
+        canvas.restore();
+    }
+
+    /**
+     * 绘制机器人的手（4 根手指从腕部散开）
+     *
+     * 手指为小圆角矩形，从腕部沿前臂延伸方向扇形展开。
+     *
+     * @param canvas       画布
+     * @param wristX       腕部 X（px，相对于肩膀）
+     * @param wristY       腕部 Y（px，相对于肩膀）
+     * @param forearmAngle 前臂角度（弧度）
+     * @param isWaving     是否为挥手姿势（手指更加张开）
+     */
+    private void drawHand(Canvas canvas, float wristX, float wristY,
+                          float forearmAngle, boolean isWaving) {
+        canvas.save();
+        canvas.translate(wristX, wristY);
+
+        // 手指展开角度范围
+        float spreadAngle = isWaving ? 50f : 35f;
+        float baseAngle = (float) Math.toDegrees(forearmAngle);
+        float startAngle = baseAngle - spreadAngle / 2f;
+        float step = spreadAngle / (FINGER_COUNT - 1);
+
+        float fingerLen = dp(FINGER_LEN);
+        float fingerW = dp(FINGER_W);
+
+        for (int i = 0; i < FINGER_COUNT; i++) {
+            float angle = (float) Math.toRadians(startAngle + step * i);
+            float fx = (float) Math.cos(angle) * fingerLen;
+            float fy = (float) Math.sin(angle) * fingerLen;
+
+            // 手指管段
+            canvas.save();
+            canvas.rotate((float) Math.toDegrees(angle));
+
+            mTempRect2.set(0, -fingerW / 2f, fingerLen, fingerW / 2f);
+            mFillPaint.setStyle(Paint.Style.FILL);
+            mFillPaint.setColor(COLOR_BODY_WHITE);
+            mFillPaint.clearShadowLayer();
+            canvas.drawRoundRect(mTempRect2, fingerW / 2f, fingerW / 2f, mFillPaint);
+
+            mStrokePaint.setStyle(Paint.Style.STROKE);
+            mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+            mStrokePaint.setColor(COLOR_OUTLINE);
+            mStrokePaint.clearShadowLayer();
+            canvas.drawRoundRect(mTempRect2, fingerW / 2f, fingerW / 2f, mStrokePaint);
+
+            canvas.restore();
+        }
+
+        canvas.restore();
+    }
+
+    // ==================== 脖子 ====================
+
+    /**
+     * 绘制脖子（头部和身体之间的圆柱连接器）
+     *
+     * 深色短圆角矩形，位于头部底部和身体顶部之间。
+     *
+     * @param canvas 画布
+     * @param state  机器人状态
+     * @param glow   发光强度
+     */
+    private void drawNeck(Canvas canvas, RobotState state, float glow) {
+        float headBottom = dp(HEAD_CY) + dp(HEAD_H) / 2f;
+        float bodyTop = dp(BODY_TOP_Y);
+        float neckCY = (headBottom + bodyTop) / 2f;
+        float neckHW = dp(NECK_W) / 2f;
+        float neckHH = dp(NECK_H) / 2f;
+
+        mTempRect.set(-neckHW, neckCY - neckHH, neckHW, neckCY + neckHH);
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, dp(5f), dp(5f), mDarkFillPaint);
+
+        // 深灰描边
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, dp(5f), dp(5f), mStrokePaint);
     }
 
     // ==================== 头部 ====================
 
     /**
-     * 绘制头部圆角矩形
+     * 绘制机器人头部（大的白色圆角矩形/椭圆形）
      *
-     * 头部中心位于 (0, HEAD_CY)，大小 HEAD_W × HEAD_H，圆角 HEAD_R。
+     * 头部是机器人最大的部件，约占总高度 45%。
+     * 使用高圆角使其接近圆形/椭圆形的可爱造型。
      *
      * @param canvas 画布
-     * @param state  猫咪状态
+     * @param state  机器人状态
      * @param glow   发光强度
      */
     private void drawHead(Canvas canvas, RobotState state, float glow) {
@@ -786,402 +992,286 @@ public class CatRenderer {
 
         mTempRect.set(-hw, cy - hh, hw, cy + hh);
 
-        // 发光层
-        setupGlowPaint(mPrimaryGlow, COLOR_PRIMARY, dp(2.5f) + dp(GLOW_EXTRA_STROKE),
-                dp(GLOW_HEAD) * glow);
-        canvas.drawRoundRect(mTempRect, r, r, mPrimaryGlow);
+        // 白色填充
+        mFillPaint.setStyle(Paint.Style.FILL);
+        mFillPaint.setColor(COLOR_BODY_WHITE);
+        mFillPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, r, r, mFillPaint);
 
-        // 核心层
-        setupCorePaint(mPrimaryCore, COLOR_PRIMARY, dp(2.5f), dp(CORE_HEAD) * glow);
-        canvas.drawRoundRect(mTempRect, r, r, mPrimaryCore);
+        // 深灰描边
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_W));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, r, r, mStrokePaint);
     }
 
-    // ==================== 耳朵 ====================
+    // ==================== 侧耳（耳机垫块） ====================
 
     /**
-     * 绘制双耳（三角形外廓 + 缩小内侧三角）
+     * 绘制头部两侧的矩形耳块（类似耳机垫）
      *
-     * 左耳根据 state.leftEarAngle 旋转，右耳镜像处理。
-     * 外廓为青色双层霓虹，内侧为品红色。
-     *
-     * @param canvas 画布
-     * @param state  猫咪状态
-     * @param glow   发光强度
-     */
-    private void drawEars(Canvas canvas, RobotState state, float glow) {
-        // 左耳
-        drawSingleEar(canvas, EAR_L_AX, EAR_L_AY, EAR_L_BX, EAR_L_BY,
-                EAR_L_CX, EAR_L_CY, state.leftEarAngle, glow);
-        // 右耳（镜像 X 坐标）
-        drawSingleEar(canvas, -EAR_L_AX, EAR_L_AY, -EAR_L_BX, EAR_L_BY,
-                -EAR_L_CX, EAR_L_CY, -state.rightEarAngle, glow);
-    }
-
-    /**
-     * 绘制单个耳朵
+     * 深灰色圆角矩形，附着在头部左右两侧，带一条细的青色点缀线。
+     * 受 state.leftEarAngle/rightEarAngle 影响产生轻微倾斜。
      *
      * @param canvas 画布
-     * @param ax     顶点 A 的 X（dp）
-     * @param ay     顶点 A 的 Y（dp）
-     * @param bx     顶点 B 的 X（dp）
-     * @param by     顶点 B 的 Y（dp）
-     * @param cx     顶点 C 的 X（dp）
-     * @param cy     顶点 C 的 Y（dp）
-     * @param angle  旋转角度（度）
+     * @param state  机器人状态
      * @param glow   发光强度
      */
-    private void drawSingleEar(Canvas canvas, float ax, float ay,
-                               float bx, float by, float cx, float cy,
-                               float angle, float glow) {
-        // 计算三角形质心（用于旋转和内侧缩放的锚点）
-        float centroidX = dp((ax + bx + cx) / 3f);
-        float centroidY = dp((ay + by + cy) / 3f);
+    private void drawEarBlocks(Canvas canvas, RobotState state, float glow) {
+        float headHW = dp(HEAD_W) / 2f;
+        float headCY = dp(HEAD_CY);
+        float blockW = dp(EAR_BLOCK_W);
+        float blockH = dp(EAR_BLOCK_H);
+        float blockR = dp(EAR_BLOCK_R);
+        float offsetX = dp(EAR_BLOCK_OFFSET_X);
 
+        // 左耳块
         canvas.save();
-        canvas.rotate(angle, centroidX, centroidY);
+        float leftBlockCX = -headHW - offsetX - blockW / 2f;
+        canvas.rotate(state.leftEarAngle * 0.3f, leftBlockCX, headCY);
+        mTempRect.set(leftBlockCX - blockW / 2f, headCY - blockH / 2f,
+                leftBlockCX + blockW / 2f, headCY + blockH / 2f);
 
-        // 外廓三角形
-        mEarPath.reset();
-        mEarPath.moveTo(dp(ax), dp(ay));
-        mEarPath.lineTo(dp(bx), dp(by));
-        mEarPath.lineTo(dp(cx), dp(cy));
-        mEarPath.close();
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, blockR, blockR, mDarkFillPaint);
 
-        // 外廓发光层
-        setupGlowPaint(mPrimaryGlow, COLOR_PRIMARY, dp(EAR_STROKE) + dp(GLOW_EXTRA_STROKE),
-                dp(GLOW_EAR) * glow);
-        canvas.drawPath(mEarPath, mPrimaryGlow);
+        // 深灰描边
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, blockR, blockR, mStrokePaint);
 
-        // 外廓核心层
-        setupCorePaint(mPrimaryCore, COLOR_PRIMARY, dp(EAR_STROKE), dp(CORE_EAR) * glow);
-        canvas.drawPath(mEarPath, mPrimaryCore);
-
-        // 内侧三角形（缩小 0.7x，从质心向内）
-        float s = EAR_INNER_SCALE;
-        float iax = centroidX + (dp(ax) - centroidX) * s;
-        float iay = centroidY + (dp(ay) - centroidY) * s;
-        float ibx = centroidX + (dp(bx) - centroidX) * s;
-        float iby = centroidY + (dp(by) - centroidY) * s;
-        float icx = centroidX + (dp(cx) - centroidX) * s;
-        float icy = centroidY + (dp(cy) - centroidY) * s;
-
-        mEarInnerPath.reset();
-        mEarInnerPath.moveTo(iax, iay);
-        mEarInnerPath.lineTo(ibx, iby);
-        mEarInnerPath.lineTo(icx, icy);
-        mEarInnerPath.close();
-
-        // 内侧发光层（品红色）
-        setupGlowPaint(mAccentGlow, COLOR_ACCENT, dp(2f) + dp(4f), dp(10f) * glow);
-        canvas.drawPath(mEarInnerPath, mAccentGlow);
-
-        // 内侧核心层
-        setupCorePaint(mAccentCore, COLOR_ACCENT, dp(2f), dp(3f) * glow);
-        canvas.drawPath(mEarInnerPath, mAccentCore);
+        // 青色点缀线（垂直线在耳块中央）
+        mAccentPaint.setStyle(Paint.Style.STROKE);
+        mAccentPaint.setStrokeWidth(dp(EAR_ACCENT_LINE_W));
+        mAccentPaint.setColor(COLOR_EYE_CYAN);
+        mAccentPaint.setStrokeCap(Paint.Cap.ROUND);
+        mAccentPaint.clearShadowLayer();
+        float lineX = leftBlockCX;
+        canvas.drawLine(lineX, headCY - blockH * 0.3f, lineX, headCY + blockH * 0.3f,
+                mAccentPaint);
 
         canvas.restore();
+
+        // 右耳块（镜像）
+        canvas.save();
+        float rightBlockCX = headHW + offsetX + blockW / 2f;
+        canvas.rotate(-state.rightEarAngle * 0.3f, rightBlockCX, headCY);
+        mTempRect.set(rightBlockCX - blockW / 2f, headCY - blockH / 2f,
+                rightBlockCX + blockW / 2f, headCY + blockH / 2f);
+
+        canvas.drawRoundRect(mTempRect, blockR, blockR, mDarkFillPaint);
+        canvas.drawRoundRect(mTempRect, blockR, blockR, mStrokePaint);
+
+        // 青色点缀线
+        lineX = rightBlockCX;
+        canvas.drawLine(lineX, headCY - blockH * 0.3f, lineX, headCY + blockH * 0.3f,
+                mAccentPaint);
+
+        canvas.restore();
+    }
+
+    // ==================== 面部面板 ====================
+
+    /**
+     * 绘制面部深色面板（类似面罩/显示屏区域）
+     *
+     * 横跨头部中间的深色圆角矩形，作为眼睛的背景，
+     * 营造出机器人显示屏的视觉效果。
+     *
+     * @param canvas 画布
+     * @param state  机器人状态
+     * @param glow   发光强度
+     */
+    private void drawFacePanel(Canvas canvas, RobotState state, float glow) {
+        float panelW = dp(PANEL_W);
+        float panelH = dp(PANEL_H);
+        float panelR = dp(PANEL_R);
+        float panelCY = dp(HEAD_CY) + dp(PANEL_OFFSET_Y);
+
+        mTempRect.set(-panelW / 2f, panelCY - panelH / 2f,
+                panelW / 2f, panelCY + panelH / 2f);
+
+        // 深色面板填充
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_FACE_PANEL);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, panelR, panelR, mDarkFillPaint);
+
+        // 轻微的描边（比面板稍亮）
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        mStrokePaint.setColor(setAlpha(COLOR_OUTLINE, 0x88));
+        mStrokePaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, panelR, panelR, mStrokePaint);
     }
 
     // ==================== 眼睛 ====================
 
     /**
-     * 绘制双眼（眼眶 + 瞳孔，形态随表情变化）
+     * 绘制双眼（青色发光环 + 黑色瞳孔，支持追踪和表情变化）
      *
-     * - IDLE：竖椭圆瞳孔，品红色，周期性眨眼
-     * - EXCITED：较圆的瞳孔，绿色发光
-     * - SURPRISED：完全圆形瞳孔，黄色发光，眼眶放大 1.4x
+     * 每只眼睛由三层构成：
+     * 1. 外部青色发光环（带 shadowLayer 辉光效果）
+     * 2. 中间暗色圆（眼球底色）
+     * 3. 内部黑色瞳孔（根据 eyePupilOffsetX/Y 偏移追踪）
+     *
+     * 表情影响：
+     * - IDLE：正常大小，标准亮度
+     * - EXCITED：发光更强，轻微放大
+     * - SURPRISED：眼睛圆睁放大
      *
      * @param canvas 画布
-     * @param state  猫咪状态
+     * @param state  机器人状态
      * @param glow   发光强度
      */
     private void drawEyes(Canvas canvas, RobotState state, float glow) {
+        float panelCY = dp(HEAD_CY) + dp(PANEL_OFFSET_Y) + dp(EYE_CY_OFFSET);
         float openness = state.eyeOpenness;
-        float dilation = state.pupilDilation;
 
-        // 根据表情确定瞳孔颜色和形状参数
-        int pupilColor;
-        float pupilRxMul = 1.0f; // 瞳孔水平半径乘数
-        float socketScale = 1.0f; // 眼眶缩放
+        // 表情影响眼睛尺寸和发光强度
+        float eyeScaleMul = 1.0f;
+        float glowMul = 1.0f;
         switch (state.expression) {
             case EXCITED:
-                pupilColor = COLOR_EYE_GREEN;
-                pupilRxMul = 1.5f; // 更圆的瞳孔
+                glowMul = 1.4f;
+                eyeScaleMul = 1.05f;
                 break;
             case SURPRISED:
-                pupilColor = COLOR_SURPRISED_YELLOW;
-                pupilRxMul = 1.8f; // 几乎圆形
-                socketScale = 1.4f;
+                eyeScaleMul = 1.3f;
+                glowMul = 1.2f;
                 break;
             default:
-                pupilColor = COLOR_ACCENT;
                 break;
         }
 
         // 左眼
-        drawSingleEye(canvas, dp(EYE_L_CX), dp(EYE_CY),
-                dp(EYE_RX) * socketScale, dp(EYE_RY) * socketScale * openness,
+        drawSingleEye(canvas, dp(EYE_L_CX), panelCY,
+                dp(EYE_OUTER_R) * eyeScaleMul,
+                dp(EYE_PUPIL_R) * eyeScaleMul,
                 dp(state.eyePupilOffsetX), dp(state.eyePupilOffsetY),
-                dp(PUPIL_RX) * dilation * pupilRxMul, dp(PUPIL_RY) * dilation * openness,
-                pupilColor, glow, openness);
+                openness, glow * glowMul);
 
         // 右眼
-        drawSingleEye(canvas, dp(EYE_R_CX), dp(EYE_CY),
-                dp(EYE_RX) * socketScale, dp(EYE_RY) * socketScale * openness,
+        drawSingleEye(canvas, dp(EYE_R_CX), panelCY,
+                dp(EYE_OUTER_R) * eyeScaleMul,
+                dp(EYE_PUPIL_R) * eyeScaleMul,
                 dp(state.eyePupilOffsetX), dp(state.eyePupilOffsetY),
-                dp(PUPIL_RX) * dilation * pupilRxMul, dp(PUPIL_RY) * dilation * openness,
-                pupilColor, glow, openness);
+                openness, glow * glowMul);
     }
 
     /**
-     * 绘制单个眼睛（眼眶描边 + 瞳孔填充）
+     * 绘制单个眼睛（发光环 + 瞳孔）
      *
-     * @param canvas     画布
-     * @param cx         眼眶中心 X（px）
-     * @param cy         眼眶中心 Y（px）
-     * @param socketRX   眼眶水平半径（px）
-     * @param socketRY   眼眶垂直半径（px，受 openness 缩放）
-     * @param pupilOffX  瞳孔水平偏移（px）
-     * @param pupilOffY  瞳孔垂直偏移（px）
-     * @param pupilRX    瞳孔水平半径（px）
-     * @param pupilRY    瞳孔垂直半径（px）
-     * @param pupilColor 瞳孔颜色
-     * @param glow       发光强度
-     * @param openness   眼睛睁开度（0=闭合，1=正常，1.4=惊讶）
+     * @param canvas    画布
+     * @param cx        眼睛中心 X（px）
+     * @param cy        眼睛中心 Y（px）
+     * @param outerR    外环半径（px）
+     * @param pupilR    瞳孔半径（px）
+     * @param pupilOffX 瞳孔水平偏移（px）
+     * @param pupilOffY 瞳孔垂直偏移（px）
+     * @param openness  眼睛睁开度（0=闭合, 1=正常）
+     * @param glow      发光强度
      */
     private void drawSingleEye(Canvas canvas, float cx, float cy,
-                               float socketRX, float socketRY,
+                               float outerR, float pupilR,
                                float pupilOffX, float pupilOffY,
-                               float pupilRX, float pupilRY,
-                               int pupilColor, float glow, float openness) {
-        // 眼睛几乎闭合时只画一条线
+                               float openness, float glow) {
+        // 眼睛几乎闭合时只画一条短横线
         if (openness < 0.1f) {
-            mPrimaryGlow.setStyle(Paint.Style.STROKE);
-            mPrimaryGlow.setStrokeWidth(dp(2f));
-            mPrimaryGlow.setStrokeCap(Paint.Cap.ROUND);
-            mPrimaryGlow.setColor(COLOR_CORE);
-            mPrimaryGlow.setShadowLayer(dp(CORE_EYE) * glow, 0, 0, COLOR_PRIMARY);
-            canvas.drawLine(cx - socketRX * 0.7f, cy, cx + socketRX * 0.7f, cy, mPrimaryGlow);
+            mEyeGlowPaint.setStyle(Paint.Style.STROKE);
+            mEyeGlowPaint.setStrokeWidth(dp(2.5f));
+            mEyeGlowPaint.setStrokeCap(Paint.Cap.ROUND);
+            mEyeGlowPaint.setColor(COLOR_EYE_CYAN);
+            mEyeGlowPaint.setShadowLayer(dp(8f) * glow, 0, 0, COLOR_EYE_CYAN);
+            canvas.drawLine(cx - outerR * 0.6f, cy, cx + outerR * 0.6f, cy, mEyeGlowPaint);
             return;
         }
 
-        // 眼眶描边
-        mTempRect.set(cx - socketRX, cy - socketRY, cx + socketRX, cy + socketRY);
-        // 发光层
-        mPrimaryGlow.setStyle(Paint.Style.STROKE);
-        mPrimaryGlow.setStrokeWidth(dp(2f) + dp(4f));
-        mPrimaryGlow.setStrokeCap(Paint.Cap.ROUND);
-        mPrimaryGlow.setColor(setAlpha(COLOR_PRIMARY, 0xAA));
-        mPrimaryGlow.setShadowLayer(dp(GLOW_EYE) * glow, 0, 0, COLOR_PRIMARY);
-        canvas.drawOval(mTempRect, mPrimaryGlow);
-        // 核心层
-        mPrimaryCore.setStyle(Paint.Style.STROKE);
-        mPrimaryCore.setStrokeWidth(dp(1.5f));
-        mPrimaryCore.setColor(COLOR_CORE);
-        mPrimaryCore.setShadowLayer(dp(CORE_EYE) * glow, 0, 0, COLOR_PRIMARY);
-        canvas.drawOval(mTempRect, mPrimaryCore);
+        // 利用 openness 缩放垂直方向，实现眨眼效果
+        canvas.save();
+        canvas.scale(1f, openness, cx, cy);
 
-        // 瞳孔填充
+        // 第 1 层：青色发光环（外圆，带 shadowLayer 辉光）
+        setupGlowPaint(mEyeGlowPaint, COLOR_EYE_CYAN, dp(EYE_GLOW_RING_W),
+                dp(12f) * glow);
+        canvas.drawCircle(cx, cy, outerR, mEyeGlowPaint);
+
+        // 第 2 层：暗色眼球底色（填充内部）
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_FACE_PANEL);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawCircle(cx, cy, outerR - dp(EYE_GLOW_RING_W) / 2f, mDarkFillPaint);
+
+        // 第 3 层：内圈青色发光（比外环细，更紧密的光环）
+        setupCorePaint(mEyeCorePaint, COLOR_EYE_CYAN, dp(1.5f), dp(6f) * glow);
+        canvas.drawCircle(cx, cy, outerR - dp(EYE_GLOW_RING_W), mEyeCorePaint);
+
+        // 第 4 层：黑色瞳孔（偏移追踪）
         float pcx = cx + pupilOffX;
         float pcy = cy + pupilOffY;
-        mTempRect.set(pcx - pupilRX, pcy - pupilRY, pcx + pupilRX, pcy + pupilRY);
-        // 发光层
-        mEyePaint.setStyle(Paint.Style.FILL);
-        mEyePaint.setColor(setAlpha(pupilColor, 0xCC));
-        mEyePaint.setShadowLayer(dp(GLOW_EYE) * glow, 0, 0, pupilColor);
-        canvas.drawOval(mTempRect, mEyePaint);
-        // 核心层（更亮的中心）
-        float innerScale = 0.6f;
-        mTempRect.set(pcx - pupilRX * innerScale, pcy - pupilRY * innerScale,
-                pcx + pupilRX * innerScale, pcy + pupilRY * innerScale);
-        mEyePaint.setColor(COLOR_CORE);
-        mEyePaint.setShadowLayer(dp(CORE_EYE) * glow * 0.5f, 0, 0, pupilColor);
-        canvas.drawOval(mTempRect, mEyePaint);
+        mEyeCorePaint.setStyle(Paint.Style.FILL);
+        mEyeCorePaint.setColor(COLOR_PUPIL);
+        mEyeCorePaint.clearShadowLayer();
+        canvas.drawCircle(pcx, pcy, pupilR, mEyeCorePaint);
+
+        // 第 5 层：瞳孔高光点（小白点，增添灵动感）
+        float hlR = pupilR * 0.3f;
+        mFillPaint.setStyle(Paint.Style.FILL);
+        mFillPaint.setColor(COLOR_CORE);
+        mFillPaint.clearShadowLayer();
+        canvas.drawCircle(pcx - pupilR * 0.3f, pcy - pupilR * 0.3f, hlR, mFillPaint);
+
+        canvas.restore();
     }
 
-    // ==================== 鼻子和嘴巴 ====================
+    // ==================== 额头装饰 ====================
 
     /**
-     * 绘制鼻子（倒三角形）和嘴巴（两条贝塞尔弧线）
+     * 绘制额头上的两个小圆点装饰
      *
-     * 鼻子为品红色小倒三角，嘴巴从鼻子底部向两侧延伸的曲线。
-     *
-     * @param canvas 画布
-     * @param state  猫咪状态
-     * @param glow   发光强度
-     */
-    private void drawNoseMouth(Canvas canvas, RobotState state, float glow) {
-        float noseCY = dp(NOSE_CY);
-        float noseHW = dp(NOSE_HW);
-        float noseH = dp(NOSE_H);
-        float noseTop = noseCY - noseH / 2f;
-        float noseBot = noseCY + noseH / 2f;
-
-        // 鼻子倒三角 Path
-        mTempPath.reset();
-        mTempPath.moveTo(-noseHW, noseTop);
-        mTempPath.lineTo(noseHW, noseTop);
-        mTempPath.lineTo(0, noseBot);
-        mTempPath.close();
-
-        // 鼻子发光层（品红）
-        mAccentGlow.setStyle(Paint.Style.FILL);
-        mAccentGlow.setColor(setAlpha(COLOR_ACCENT, 0xCC));
-        mAccentGlow.setShadowLayer(dp(10f) * glow, 0, 0, COLOR_ACCENT);
-        canvas.drawPath(mTempPath, mAccentGlow);
-
-        // 鼻子核心层
-        mAccentCore.setStyle(Paint.Style.FILL);
-        mAccentCore.setColor(COLOR_CORE);
-        mAccentCore.setShadowLayer(dp(3f) * glow, 0, 0, COLOR_ACCENT);
-        float noseInnerScale = 0.6f;
-        mTempPath.reset();
-        mTempPath.moveTo(-noseHW * noseInnerScale, noseTop + noseH * 0.15f);
-        mTempPath.lineTo(noseHW * noseInnerScale, noseTop + noseH * 0.15f);
-        mTempPath.lineTo(0, noseBot - noseH * 0.1f);
-        mTempPath.close();
-        canvas.drawPath(mTempPath, mAccentCore);
-
-        // 嘴巴：从鼻底分成两条贝塞尔弧线
-        float mouthStartY = noseBot;
-        float mouthSideW = dp(MOUTH_SIDE_W);
-
-        mMouthPath.reset();
-        // 左侧弧线
-        mMouthPath.moveTo(0, mouthStartY);
-        mMouthPath.quadTo(-mouthSideW * 0.5f, mouthStartY + dp(5f),
-                -mouthSideW, mouthStartY + dp(2f));
-        // 右侧弧线
-        mMouthPath.moveTo(0, mouthStartY);
-        mMouthPath.quadTo(mouthSideW * 0.5f, mouthStartY + dp(5f),
-                mouthSideW, mouthStartY + dp(2f));
-
-        // 嘴巴发光层
-        mPrimaryGlow.setStyle(Paint.Style.STROKE);
-        mPrimaryGlow.setStrokeWidth(dp(1.5f) + dp(4f));
-        mPrimaryGlow.setStrokeCap(Paint.Cap.ROUND);
-        mPrimaryGlow.setColor(setAlpha(COLOR_PRIMARY, 0xAA));
-        mPrimaryGlow.setShadowLayer(dp(8f) * glow, 0, 0, COLOR_PRIMARY);
-        canvas.drawPath(mMouthPath, mPrimaryGlow);
-
-        // 嘴巴核心层
-        mPrimaryCore.setStyle(Paint.Style.STROKE);
-        mPrimaryCore.setStrokeWidth(dp(1.5f));
-        mPrimaryCore.setStrokeCap(Paint.Cap.ROUND);
-        mPrimaryCore.setColor(COLOR_CORE);
-        mPrimaryCore.setShadowLayer(dp(3f) * glow, 0, 0, COLOR_PRIMARY);
-        canvas.drawPath(mMouthPath, mPrimaryCore);
-    }
-
-    // ==================== 胡须 ====================
-
-    /**
-     * 绘制胡须（左右各 3 根）
-     *
-     * 从脸颊两侧向外延伸，轻微上中下分散角度。
-     * 双层霓虹效果（青色发光 + 白色核心）。
+     * 类似传感器/指示灯，位于头部上方区域，增加机器人的科技感细节。
      *
      * @param canvas 画布
-     * @param state  猫咪状态
+     * @param state  机器人状态
      * @param glow   发光强度
      */
-    private void drawWhiskers(Canvas canvas, RobotState state, float glow) {
-        // 三根胡须的角度偏移（度），从上到下
-        float[] angles = {-15f, 0f, 15f};
+    private void drawForeheadDots(Canvas canvas, RobotState state, float glow) {
+        float headTopY = dp(HEAD_CY) - dp(HEAD_H) / 2f;
+        float dotY = headTopY + dp(FOREHEAD_DOT_Y);
+        float dotR = dp(FOREHEAD_DOT_R);
+        float spacing = dp(FOREHEAD_DOT_SPACING);
 
-        float len = dp(WHISKER_LEN);
-        float startLX = dp(WHISKER_L_X);
-        float startRX = dp(WHISKER_R_X);
-        float startY = dp(WHISKER_Y);
+        // 深灰色小圆点
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawCircle(-spacing / 2f, dotY, dotR, mDarkFillPaint);
+        canvas.drawCircle(spacing / 2f, dotY, dotR, mDarkFillPaint);
 
-        for (int i = 0; i < 3; i++) {
-            float rad = (float) Math.toRadians(angles[i]);
-            float endLX = startLX - len * (float) Math.cos(rad);
-            float endLY = startY + len * (float) Math.sin(rad);
-            float endRX = startRX + len * (float) Math.cos(rad);
-            float endRY = startY + len * (float) Math.sin(rad);
-
-            // 左侧胡须 - 发光层
-            mPrimaryGlow.setStyle(Paint.Style.STROKE);
-            mPrimaryGlow.setStrokeWidth(dp(WHISKER_STROKE) + dp(GLOW_EXTRA_STROKE));
-            mPrimaryGlow.setStrokeCap(Paint.Cap.ROUND);
-            mPrimaryGlow.setColor(setAlpha(COLOR_PRIMARY, 0xCC));
-            mPrimaryGlow.setShadowLayer(dp(GLOW_WHISKER) * glow, 0, 0, COLOR_PRIMARY);
-            canvas.drawLine(startLX, startY, endLX, endLY, mPrimaryGlow);
-
-            // 左侧胡须 - 核心层
-            mPrimaryCore.setStyle(Paint.Style.STROKE);
-            mPrimaryCore.setStrokeWidth(dp(WHISKER_STROKE));
-            mPrimaryCore.setStrokeCap(Paint.Cap.ROUND);
-            mPrimaryCore.setColor(COLOR_CORE);
-            mPrimaryCore.setShadowLayer(dp(CORE_WHISKER) * glow, 0, 0, COLOR_PRIMARY);
-            canvas.drawLine(startLX, startY, endLX, endLY, mPrimaryCore);
-
-            // 右侧胡须 - 发光层
-            canvas.drawLine(startRX, startY, endRX, endRY, mPrimaryGlow);
-            // 右侧胡须 - 核心层
-            canvas.drawLine(startRX, startY, endRX, endRY, mPrimaryCore);
-        }
-    }
-
-    // ==================== 爪尖 ====================
-
-    /**
-     * 绘制爪尖（每只脚掌 3 个小弧形）
-     *
-     * 品红色的小弧线，从脚掌底部伸出，增强猫爪的可爱度和细节。
-     *
-     * @param canvas 画布
-     * @param state  猫咪状态
-     * @param glow   发光强度
-     */
-    private void drawClawTips(Canvas canvas, RobotState state, float glow) {
-        // 4 只脚的 X 位置（前左、前右、后左、后右）
-        float[] pawXs = {-dp(FLEG_PIVOT_X), dp(FLEG_PIVOT_X),
-                -dp(BLEG_PIVOT_X), dp(BLEG_PIVOT_X)};
-        // 对应的 Y 位置（枢轴 Y + 腿长）
-        float[] pawYs = {dp(FLEG_PIVOT_Y) + dp(FLEG_LEN),
-                dp(FLEG_PIVOT_Y) + dp(FLEG_LEN),
-                dp(BLEG_PIVOT_Y) + dp(BLEG_LEN),
-                dp(BLEG_PIVOT_Y) + dp(BLEG_LEN)};
-
-        float clawLen = dp(CLAW_LEN);
-
-        mAccentGlow.setStyle(Paint.Style.STROKE);
-        mAccentGlow.setStrokeWidth(dp(1.5f) + dp(3f));
-        mAccentGlow.setStrokeCap(Paint.Cap.ROUND);
-        mAccentGlow.setColor(setAlpha(COLOR_ACCENT, 0xBB));
-        mAccentGlow.setShadowLayer(dp(6f) * glow, 0, 0, COLOR_ACCENT);
-
-        mAccentCore.setStyle(Paint.Style.STROKE);
-        mAccentCore.setStrokeWidth(dp(1f));
-        mAccentCore.setStrokeCap(Paint.Cap.ROUND);
-        mAccentCore.setColor(COLOR_CORE);
-        mAccentCore.setShadowLayer(dp(2f) * glow, 0, 0, COLOR_ACCENT);
-
-        for (int p = 0; p < 4; p++) {
-            float px = pawXs[p];
-            float py = pawYs[p];
-            // 3 个爪尖，左中右分布
-            float[] offsets = {-dp(4f), 0f, dp(4f)};
-            for (int c = 0; c < 3; c++) {
-                float cx = px + offsets[c];
-                // 发光层
-                canvas.drawLine(cx, py, cx, py + clawLen, mAccentGlow);
-                // 核心层
-                canvas.drawLine(cx, py, cx, py + clawLen, mAccentCore);
-            }
-        }
+        // 轮廓描边
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(1f));
+        mStrokePaint.setColor(COLOR_OUTLINE);
+        mStrokePaint.clearShadowLayer();
+        canvas.drawCircle(-spacing / 2f, dotY, dotR, mStrokePaint);
+        canvas.drawCircle(spacing / 2f, dotY, dotR, mStrokePaint);
     }
 
     // ==================== 工具方法 ====================
 
     /**
-     * 配置发光层 Paint（描边模式 + 加粗 + 大 shadowLayer + 半透明主色）
+     * 配置发光层 Paint（描边模式 + 指定宽度 + shadowLayer 辉光）
+     *
+     * 用于眼睛青色发光环等需要辉光效果的元素。
      *
      * @param paint       目标 Paint
      * @param glowColor   发光色
-     * @param strokeWidth 描边宽度（px，已含 GLOW_EXTRA_STROKE）
+     * @param strokeWidth 描边宽度（px）
      * @param shadowRadius Shadow 半径（px）
      */
     private void setupGlowPaint(Paint paint, int glowColor, float strokeWidth,
@@ -1190,15 +1280,17 @@ public class CatRenderer {
         paint.setStrokeWidth(strokeWidth);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setColor(setAlpha(glowColor, 0xCC));
+        paint.setColor(glowColor);
         paint.setShadowLayer(shadowRadius, 0, 0, glowColor);
     }
 
     /**
-     * 配置核心层 Paint（描边模式 + 正常宽度 + 小 shadowLayer + 白色）
+     * 配置核心层 Paint（描边模式 + 正常宽度 + 小 shadowLayer）
+     *
+     * 用于眼睛内环等需要柔和发光的元素。
      *
      * @param paint       目标 Paint
-     * @param shadowColor Shadow 颜色（主色调）
+     * @param shadowColor Shadow 颜色
      * @param strokeWidth 描边宽度（px）
      * @param shadowRadius Shadow 半径（px）
      */
@@ -1208,7 +1300,7 @@ public class CatRenderer {
         paint.setStrokeWidth(strokeWidth);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setColor(COLOR_CORE);
+        paint.setColor(shadowColor);
         paint.setShadowLayer(shadowRadius, 0, 0, shadowColor);
     }
 

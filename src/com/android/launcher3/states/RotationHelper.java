@@ -223,10 +223,7 @@ public class RotationHelper implements LauncherPrefChangeListener,
         }
 
         final int activityFlags;
-        // AutoPilot 车载模式：强制横屏，跳过所有其他旋转逻辑
-        if (android.os.SystemProperties.getBoolean("persist.launcher.robot_page", true)) {
-            activityFlags = SCREEN_ORIENTATION_USER_LANDSCAPE;
-        } else if (mIsFixedLandscape) {
+        if (mIsFixedLandscape) {
             activityFlags = SCREEN_ORIENTATION_USER_LANDSCAPE;
         } else if (mStateHandlerRequest != REQUEST_NONE) {
             activityFlags = mStateHandlerRequest == REQUEST_LOCK ?
