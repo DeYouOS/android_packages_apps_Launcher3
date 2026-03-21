@@ -6,13 +6,14 @@ import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
+import android.graphics.RadialGradient;
 import android.graphics.RectF;
 import android.graphics.Shader;
 
 import java.util.Random;
 
 /**
- * 扁平风格 AI 机器人 Canvas 2D 渲染器
+ * 扁平风格 AI 机器人 Canvas 2D 渲染器（增强版）
  *
  * 使用纯 Canvas Path/drawArc/drawCircle/drawRoundRect 绘制可爱的白色卡通机器人。
  * 所有形状采用「白色填充 + 深灰描边」的扁平设计风格，眼睛带有青色发光效果。
@@ -22,14 +23,15 @@ import java.util.Random;
  * - 白色圆头机器人（#F0F0F0 填充 + #3A3A3A 描边）
  * - 青色发光圆眼（#00D4FF 外环 + #1A1A1A 黑瞳）
  * - 深色面板/关节（#2D2D2D / #4A4A4A）
- * - 60~80 颗星星粒子 + 流星效果
+ * - 60~80 颗星星粒子 + 流星效果 + 环境辉光
+ * - 天线、胸部徽章、面板接缝线、肩甲等丰富视觉细节
  * - 表情系统：IDLE（正常）、EXCITED（眼睛更亮、轻微倾斜）、SURPRISED（眼睛圆睁）
  *
  * 所有尺寸使用 dp 定义，运行时根据 Canvas 密度转 px。
  * 绘制坐标以机器人 bodyX/bodyY 为原点，各部件相对定位。
  *
  * 绘制顺序（后→前）：
- * 背景星空 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 面板 → 眼睛 → 额头装饰
+ * 背景星空 → 环境辉光 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 天线 → 侧耳 → 面板 → 眼睛 → 额头点 → 指示灯
  */
 public class CatRenderer {
 
@@ -62,59 +64,68 @@ public class CatRenderer {
     /** 深空背景右上角色：深蓝 */
     private static final int COLOR_BG_DEEP_BLUE = 0xFF0C1428;
 
+    /** 绿色指示灯色 */
+    private static final int COLOR_INDICATOR_GREEN = 0xFF00FF88;
+
+    /** 琥珀色指示灯色 */
+    private static final int COLOR_INDICATOR_AMBER = 0xFFFFB800;
+
+    /** 面板内高亮边框色（增加深度感） */
+    private static final int COLOR_PANEL_HIGHLIGHT = 0xFF555555;
+
     // ==================== 机器人比例尺寸（dp） ====================
-    // 目标：机器人占屏幕高度 ~70%，约 1638px → ~596dp (@2.75x)
-    // 头部 ~45% = ~268dp, 身体 ~25% = ~149dp, 腿+脚 ~30% = ~179dp
+    // 目标：机器人占屏幕高度 ~85%，约 720dp (@2.75x 密度)
+    // 头部 ~45%, 身体 ~25%, 腿+脚 ~30%，在原 596dp 基础上按 1.21x 放大
 
     // ---- 头部 ----
     /** 头部宽度（dp） */
-    private static final float HEAD_W = 180f;
+    private static final float HEAD_W = 220f;
     /** 头部高度（dp） */
-    private static final float HEAD_H = 170f;
+    private static final float HEAD_H = 205f;
     /** 头部圆角半径（dp，接近圆形） */
-    private static final float HEAD_R = 75f;
+    private static final float HEAD_R = 90f;
     /** 头部中心 Y 偏移（相对于机器人原点） */
-    private static final float HEAD_CY = -160f;
+    private static final float HEAD_CY = -195f;
 
     // ---- 面部面板（面罩/显示屏） ----
     /** 面板宽度（dp） */
-    private static final float PANEL_W = 140f;
+    private static final float PANEL_W = 170f;
     /** 面板高度（dp） */
-    private static final float PANEL_H = 60f;
+    private static final float PANEL_H = 75f;
     /** 面板圆角（dp） */
-    private static final float PANEL_R = 18f;
+    private static final float PANEL_R = 22f;
     /** 面板中心 Y 偏移（相对于头部中心） */
-    private static final float PANEL_OFFSET_Y = 8f;
+    private static final float PANEL_OFFSET_Y = 10f;
 
     // ---- 眼睛 ----
     /** 左眼中心 X（相对于头部中心，负=左） */
-    private static final float EYE_L_CX = -30f;
+    private static final float EYE_L_CX = -36f;
     /** 右眼中心 X（相对于头部中心） */
-    private static final float EYE_R_CX = 30f;
+    private static final float EYE_R_CX = 36f;
     /** 眼睛中心 Y（相对于面板中心） */
     private static final float EYE_CY_OFFSET = 0f;
     /** 眼睛外环半径（dp） */
-    private static final float EYE_OUTER_R = 18f;
+    private static final float EYE_OUTER_R = 22f;
     /** 眼睛瞳孔半径（dp） */
-    private static final float EYE_PUPIL_R = 8f;
+    private static final float EYE_PUPIL_R = 10f;
     /** 眼睛发光环宽度（dp） */
-    private static final float EYE_GLOW_RING_W = 4f;
+    private static final float EYE_GLOW_RING_W = 5f;
 
     // ---- 额头小点 ----
     /** 额头小点半径（dp） */
-    private static final float FOREHEAD_DOT_R = 3f;
+    private static final float FOREHEAD_DOT_R = 4f;
     /** 额头小点 Y 偏移（相对于头部顶部） */
-    private static final float FOREHEAD_DOT_Y = 30f;
+    private static final float FOREHEAD_DOT_Y = 36f;
     /** 两个额头小点的 X 间距（各一侧，dp） */
-    private static final float FOREHEAD_DOT_SPACING = 12f;
+    private static final float FOREHEAD_DOT_SPACING = 15f;
 
     // ---- 侧耳（耳机垫块） ----
     /** 侧耳块宽度（dp） */
-    private static final float EAR_BLOCK_W = 22f;
+    private static final float EAR_BLOCK_W = 27f;
     /** 侧耳块高度（dp） */
-    private static final float EAR_BLOCK_H = 55f;
+    private static final float EAR_BLOCK_H = 67f;
     /** 侧耳块圆角（dp） */
-    private static final float EAR_BLOCK_R = 8f;
+    private static final float EAR_BLOCK_R = 10f;
     /** 侧耳块 X 偏移（从头部边缘向外，dp） */
     private static final float EAR_BLOCK_OFFSET_X = 2f;
     /** 侧耳块青色点缀线宽度（dp） */
@@ -122,63 +133,73 @@ public class CatRenderer {
 
     // ---- 脖子 ----
     /** 脖子宽度（dp） */
-    private static final float NECK_W = 28f;
+    private static final float NECK_W = 34f;
     /** 脖子高度（dp） */
-    private static final float NECK_H = 18f;
+    private static final float NECK_H = 22f;
 
     // ---- 身体（盾形/心形躯干） ----
     /** 身体顶部宽度（dp） */
-    private static final float BODY_TOP_W = 120f;
+    private static final float BODY_TOP_W = 145f;
     /** 身体最大宽度（dp，中部肩膀处） */
-    private static final float BODY_MID_W = 130f;
+    private static final float BODY_MID_W = 157f;
     /** 身体高度（dp） */
-    private static final float BODY_H = 120f;
+    private static final float BODY_H = 145f;
     /** 身体顶部 Y 偏移（相对于原点，脖子下方） */
-    private static final float BODY_TOP_Y = -58f;
+    private static final float BODY_TOP_Y = -70f;
     /** 身体圆角（dp） */
-    private static final float BODY_R = 25f;
+    private static final float BODY_R = 30f;
 
     // ---- 手臂 ----
     /** 上臂长度（dp） */
-    private static final float ARM_UPPER_LEN = 55f;
+    private static final float ARM_UPPER_LEN = 67f;
     /** 前臂长度（dp） */
-    private static final float ARM_FOREARM_LEN = 50f;
+    private static final float ARM_FOREARM_LEN = 60f;
     /** 手臂管宽度（dp） */
-    private static final float ARM_TUBE_W = 16f;
+    private static final float ARM_TUBE_W = 20f;
     /** 关节球半径（dp） */
-    private static final float JOINT_R = 7f;
+    private static final float JOINT_R = 9f;
     /** 肩膀关节 Y（相对于身体顶部，dp） */
-    private static final float SHOULDER_Y_OFFSET = 15f;
+    private static final float SHOULDER_Y_OFFSET = 18f;
     /** 手指数量 */
     private static final int FINGER_COUNT = 4;
     /** 手指长度（dp） */
-    private static final float FINGER_LEN = 10f;
+    private static final float FINGER_LEN = 12f;
     /** 手指宽度（dp） */
-    private static final float FINGER_W = 4f;
+    private static final float FINGER_W = 5f;
 
     // ---- 臀部连接器 ----
     /** 臀部连接块高度（dp） */
-    private static final float HIP_H = 12f;
+    private static final float HIP_H = 15f;
     /** 臀部连接块宽度（dp） */
-    private static final float HIP_W = 50f;
+    private static final float HIP_W = 60f;
 
     // ---- 腿 ----
     /** 腿长度（dp） */
-    private static final float LEG_LEN = 55f;
+    private static final float LEG_LEN = 67f;
     /** 腿管宽度（dp） */
-    private static final float LEG_TUBE_W = 18f;
+    private static final float LEG_TUBE_W = 22f;
     /** 左腿 X 偏移（dp） */
-    private static final float LEG_X_OFFSET = 22f;
+    private static final float LEG_X_OFFSET = 27f;
 
     // ---- 脚/靴子 ----
     /** 靴子宽度（dp） */
-    private static final float BOOT_W = 38f;
+    private static final float BOOT_W = 46f;
     /** 靴子高度（dp） */
-    private static final float BOOT_H = 28f;
+    private static final float BOOT_H = 34f;
     /** 靴子圆角（dp） */
-    private static final float BOOT_R = 10f;
+    private static final float BOOT_R = 12f;
     /** 靴子侧面圆形点缀半径（dp） */
-    private static final float BOOT_CIRCLE_R = 5f;
+    private static final float BOOT_CIRCLE_R = 6f;
+
+    // ---- 天线参数 ----
+    /** 天线杆高度（dp） */
+    private static final float ANTENNA_HEIGHT = 15f;
+    /** 天线顶球半径（dp） */
+    private static final float ANTENNA_BALL_R = 5f;
+
+    // ---- 胸部徽章参数 ----
+    /** 胸部徽章半径（dp） */
+    private static final float CHEST_EMBLEM_R = 15f;
 
     // ---- 描边宽度常量 ----
     /** 主轮廓描边宽度（dp） */
@@ -217,6 +238,9 @@ public class CatRenderer {
     /** 青色点缀线画笔（耳朵、靴子装饰） */
     private final Paint mAccentPaint;
 
+    /** 细节装饰画笔（高光弧、指示灯、面板线等新增视觉元素） */
+    private final Paint mDetailPaint;
+
     /** 复用 Path：身体轮廓 */
     private final Path mBodyPath;
 
@@ -238,6 +262,9 @@ public class CatRenderer {
     /** 复用矩形对象 2（避免嵌套时冲突） */
     private final RectF mTempRect2;
 
+    /** 复用矩形对象 3（三层嵌套绘制用） */
+    private final RectF mTempRect3;
+
     /** 屏幕密度（dp→px 转换因子） */
     private float mDensity = 2.75f;
 
@@ -247,6 +274,13 @@ public class CatRenderer {
     private float mLastGradientW;
     /** 上次创建渐变时的屏幕高度 */
     private float mLastGradientH;
+
+    /** 头部区域环境辉光径向渐变 */
+    private RadialGradient mAmbientGlowGradient;
+    /** 上次环境辉光创建时的屏幕宽度 */
+    private float mLastAmbientW;
+    /** 上次环境辉光创建时的屏幕高度 */
+    private float mLastAmbientH;
 
     // ---- 星空粒子状态 ----
     /** 星星 X 坐标数组（px） */
@@ -263,6 +297,8 @@ public class CatRenderer {
     private final float[] mStarDriftX = new float[STAR_COUNT];
     /** 星星漂移速度 Y（px/s） */
     private final float[] mStarDriftY = new float[STAR_COUNT];
+    /** 星星类型标记：0=普通白色，1=大号青色调 */
+    private final int[] mStarType = new int[STAR_COUNT];
     /** 星星是否已初始化 */
     private boolean mStarsInitialized = false;
 
@@ -302,6 +338,7 @@ public class CatRenderer {
         mEyeCorePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mParticlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mAccentPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mDetailPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         mBodyPath = new Path();
         mHeadPath = new Path();
@@ -310,6 +347,7 @@ public class CatRenderer {
         mTempPath = new Path();
         mTempRect = new RectF();
         mTempRect2 = new RectF();
+        mTempRect3 = new RectF();
     }
 
     /**
@@ -328,7 +366,7 @@ public class CatRenderer {
      * 按照从后到前的层次绘制所有部件，实现完整的 AI 机器人视觉效果。
      * 每帧由 RobotRenderThread 调用。
      *
-     * 绘制顺序：背景 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 侧耳 → 面板 → 眼睛 → 额头点
+     * 绘制顺序：背景 → 环境辉光 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 天线 → 侧耳 → 面板 → 眼睛 → 额头点 → 指示灯
      *
      * @param canvas 绘制目标画布（来自 TextureView.lockCanvas，软件渲染模式）
      * @param state  当前机器人动画状态（位置、表情、眼睛参数等）
@@ -348,8 +386,8 @@ public class CatRenderer {
 
         canvas.save();
 
-        // 平移到机器人身体中心（bodyY 默认 sh/2，向上偏移让机器人居中偏上）
-        canvas.translate(state.bodyX, state.bodyY - sh * 0.05f);
+        // 平移到机器人身体中心（bodyY 默认 sh/2，机器人放大后居中即可）
+        canvas.translate(state.bodyX, state.bodyY);
 
         // 呼吸浮动 + 旋转（利用 idleTimer 产生缓慢上下浮动效果）
         float bobOffset = (float) Math.sin(state.idleTimer * 1.2) * dp(5f);
@@ -375,21 +413,23 @@ public class CatRenderer {
         drawArms(canvas, state, glow);
         drawNeck(canvas, state, glow);
         drawHead(canvas, state, glow);
+        drawAntenna(canvas, state, glow);
         drawEarBlocks(canvas, state, glow);
         drawFacePanel(canvas, state, glow);
         drawEyes(canvas, state, glow);
         drawForeheadDots(canvas, state, glow);
+        drawIndicatorLights(canvas, state, glow);
 
         canvas.restore();
     }
 
-    // ==================== 背景：深空星云 + 星星 + 流星 ====================
+    // ==================== 背景：深空星云 + 星星 + 流星 + 环境辉光 ====================
 
     /**
      * 绘制深空星云背景
      *
      * 渐变从左下角深紫到右上角深蓝，叠加 60~80 颗呼吸脉冲的星星
-     * 和 1~2 颗对角线流星。
+     * 和 1~2 颗对角线流星。最后绘制一个柔和的头部区域环境辉光。
      *
      * @param canvas 画布
      * @param sw     屏幕宽度（px）
@@ -428,10 +468,49 @@ public class CatRenderer {
 
         // 更新和绘制流星
         drawShootingStars(canvas, sw, sh, dt);
+
+        // 绘制机器人头部后方的环境辉光（柔和青色光晕）
+        drawAmbientGlow(canvas, sw, sh, state);
+    }
+
+    /**
+     * 绘制机器人头部后方的柔和环境辉光
+     *
+     * 在机器人头部区域绘制一个大的低透明度径向渐变，
+     * 营造出机器人是画面焦点的光晕效果。
+     *
+     * @param canvas 画布
+     * @param sw     屏幕宽度
+     * @param sh     屏幕高度
+     * @param state  机器人状态（获取 bodyX/bodyY）
+     */
+    private void drawAmbientGlow(Canvas canvas, float sw, float sh, RobotState state) {
+        float cx = state.bodyX;
+        // 辉光中心偏向头部位置（bodyY 上方约 HEAD_CY 处）
+        float cy = state.bodyY + dp(HEAD_CY);
+        float radius = dp(200f);
+
+        // 屏幕尺寸变化时重建径向渐变
+        if (mAmbientGlowGradient == null || sw != mLastAmbientW || sh != mLastAmbientH) {
+            mAmbientGlowGradient = new RadialGradient(cx, cy, radius,
+                    new int[]{0x1800D4FF, 0x0800D4FF, 0x00000000},
+                    new float[]{0f, 0.5f, 1f},
+                    Shader.TileMode.CLAMP);
+            mLastAmbientW = sw;
+            mLastAmbientH = sh;
+        }
+
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setShader(mAmbientGlowGradient);
+        mDetailPaint.clearShadowLayer();
+        canvas.drawCircle(cx, cy, radius, mDetailPaint);
+        mDetailPaint.setShader(null);
     }
 
     /**
      * 初始化星星位置和参数
+     *
+     * 10% 的星星为大号青色调变体，其余为普通白色小星星。
      *
      * @param sw 屏幕宽度
      * @param sh 屏幕高度
@@ -440,11 +519,20 @@ public class CatRenderer {
         for (int i = 0; i < STAR_COUNT; i++) {
             mStarX[i] = mRandom.nextFloat() * sw;
             mStarY[i] = mRandom.nextFloat() * sh;
-            mStarRadius[i] = 1f + mRandom.nextFloat() * 2f; // 1~3 dp
-            mStarAlpha[i] = 0.3f + mRandom.nextFloat() * 0.5f;
             mStarPhase[i] = mRandom.nextFloat() * (float) (Math.PI * 2);
             mStarDriftX[i] = (mRandom.nextFloat() - 0.5f) * dp(3f); // 缓慢漂移
             mStarDriftY[i] = (mRandom.nextFloat() - 0.5f) * dp(2f);
+
+            // 10% 概率为大号青色调星星
+            if (mRandom.nextFloat() < 0.1f) {
+                mStarType[i] = 1;
+                mStarRadius[i] = 2.5f + mRandom.nextFloat() * 1.5f; // 2.5~4 dp（更大）
+                mStarAlpha[i] = 0.4f + mRandom.nextFloat() * 0.4f;
+            } else {
+                mStarType[i] = 0;
+                mStarRadius[i] = 1f + mRandom.nextFloat() * 2f; // 1~3 dp
+                mStarAlpha[i] = 0.3f + mRandom.nextFloat() * 0.5f;
+            }
         }
         mStarsInitialized = true;
     }
@@ -453,6 +541,7 @@ public class CatRenderer {
      * 更新和绘制星星
      *
      * 每颗星星以正弦波呼吸脉冲透明度，缓慢漂移，超出屏幕边界时环绕重置。
+     * 青色调星星带有微弱的青色着色。
      *
      * @param canvas 画布
      * @param sw     屏幕宽度
@@ -480,9 +569,17 @@ public class CatRenderer {
             float alpha = mStarAlpha[i] * pulse;
             int alphaInt = Math.min(255, (int) (alpha * 255));
 
-            mParticlePaint.setColor(COLOR_CORE);
-            mParticlePaint.setAlpha(alphaInt);
+            if (mStarType[i] == 1) {
+                // 青色调大星星，带微弱辉光
+                mParticlePaint.setColor(0xFF88DDFF);
+                mParticlePaint.setAlpha(alphaInt);
+                mParticlePaint.setShadowLayer(dp(3f), 0, 0, 0x4400D4FF);
+            } else {
+                mParticlePaint.setColor(COLOR_CORE);
+                mParticlePaint.setAlpha(alphaInt);
+            }
             canvas.drawCircle(mStarX[i], mStarY[i], dp(mStarRadius[i]), mParticlePaint);
+            mParticlePaint.clearShadowLayer();
         }
     }
 
@@ -554,6 +651,7 @@ public class CatRenderer {
      *
      * 两条短腿从臀部连接器向下延伸，底部是大块状靴子。
      * 腿部为白色管状 + 暗色膝关节球 + 白色靴子配青色圆形装饰。
+     * 新增：膝盖青色点缀、小腿面板、靴底/鞋口线/双圆装饰。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -578,7 +676,7 @@ public class CatRenderer {
     }
 
     /**
-     * 绘制单条腿（膝关节球 + 白色管 + 靴子）
+     * 绘制单条腿（膝关节球 + 白色管 + 靴子 + 膝盖点缀 + 小腿面板 + 靴子细节）
      *
      * @param canvas 画布
      * @param cx     腿中心 X（px）
@@ -610,12 +708,30 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, dp(6f), dp(6f), mStrokePaint);
 
+        // ---- 小腿面板：半透明白色矩形，模拟正面板件 ----
+        float shinTop = kneeY + dp(JOINT_R) + dp(2f);
+        float shinBot = topY + legLen - dp(4f);
+        float shinHalfW = halfW * 0.5f;
+        mTempRect3.set(cx - shinHalfW, shinTop, cx + shinHalfW, shinBot);
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(0x33FFFFFF); // 20% 透明白色
+        mDetailPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect3, dp(2f), dp(2f), mDetailPaint);
+
         // 再绘制膝关节球（覆盖在管上方以形成层次）
+        mDarkFillPaint.setColor(COLOR_JOINT);
         canvas.drawCircle(cx, kneeY, dp(JOINT_R), mDarkFillPaint);
         mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
         canvas.drawCircle(cx, kneeY, dp(JOINT_R), mStrokePaint);
 
-        // 靴子（大块状白色 + 深灰描边 + 青色圆形装饰）
+        // ---- 膝盖青色点缀：关节球上的小青色圆点 ----
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(COLOR_EYE_CYAN);
+        mDetailPaint.setShadowLayer(dp(3f), 0, 0, COLOR_EYE_CYAN);
+        canvas.drawCircle(cx, kneeY, dp(2f), mDetailPaint);
+        mDetailPaint.clearShadowLayer();
+
+        // ---- 靴子 ----
         float bootY = topY + legLen;
         float bootW = dp(BOOT_W);
         float bootH = dp(BOOT_H);
@@ -629,14 +745,33 @@ public class CatRenderer {
         mStrokePaint.setStrokeWidth(dp(STROKE_W));
         canvas.drawRoundRect(mTempRect, dp(BOOT_R), dp(BOOT_R), mStrokePaint);
 
-        // 靴子侧面青色圆形装饰
+        // ---- 靴底线：靴子最底部的深色细线，模拟鞋底 ----
+        float soleY = bootY + bootH - dp(3f);
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(1.5f));
+        mDetailPaint.setColor(COLOR_OUTLINE);
+        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        mDetailPaint.clearShadowLayer();
+        canvas.drawLine(cx - bootW * 0.35f, soleY, cx + bootW * 0.35f, soleY, mDetailPaint);
+
+        // ---- 靴口横线：靴子上部约 30% 处的深灰横线，模拟鞋口 ----
+        float trimY = bootY + bootH * 0.3f;
+        mDetailPaint.setStrokeWidth(dp(1f));
+        mDetailPaint.setColor(0xFF505050);
+        canvas.drawLine(cx - bootW * 0.35f, trimY, cx + bootW * 0.35f, trimY, mDetailPaint);
+
+        // 靴子侧面青色圆形装饰（主圆）
         float circleX = cx + bootW * 0.2f;
-        float circleY = bootY + bootH * 0.45f;
+        float circleY = bootY + bootH * 0.55f;
         mAccentPaint.setStyle(Paint.Style.STROKE);
         mAccentPaint.setStrokeWidth(dp(EAR_ACCENT_LINE_W));
         mAccentPaint.setColor(COLOR_EYE_CYAN);
         mAccentPaint.clearShadowLayer();
         canvas.drawCircle(circleX, circleY, dp(BOOT_CIRCLE_R), mAccentPaint);
+
+        // ---- 第二个靴子圆形装饰：更小，位于主圆上方 ----
+        float circle2Y = bootY + bootH * 0.3f;
+        canvas.drawCircle(circleX, circle2Y, dp(BOOT_CIRCLE_R * 0.6f), mAccentPaint);
     }
 
     // ==================== 身体 ====================
@@ -646,6 +781,7 @@ public class CatRenderer {
      *
      * 上部宽圆肩，向下收窄成圆弧底部，形成可爱的盾牌/心形造型。
      * 白色填充 + 深灰轮廓描边。
+     * 新增：胸部徽章、面板接缝线、肩甲。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -670,11 +806,11 @@ public class CatRenderer {
         float midY = topY + h * 0.35f;
         mBodyPath.lineTo(midHW, midY);
         // 右侧向下收窄到底部
-        mBodyPath.quadTo(midHW, botY - dp(10f), dp(15f), botY);
+        mBodyPath.quadTo(midHW, botY - dp(12f), dp(18f), botY);
         // 底部圆弧
-        mBodyPath.quadTo(0, botY + dp(10f), -dp(15f), botY);
+        mBodyPath.quadTo(0, botY + dp(12f), -dp(18f), botY);
         // 左侧向上
-        mBodyPath.quadTo(-midHW, botY - dp(10f), -midHW, midY);
+        mBodyPath.quadTo(-midHW, botY - dp(12f), -midHW, midY);
         // 左侧回到顶部
         mBodyPath.lineTo(-topHW, topY + r);
         // 左上圆角
@@ -693,6 +829,75 @@ public class CatRenderer {
         mStrokePaint.setColor(COLOR_OUTLINE);
         mStrokePaint.clearShadowLayer();
         canvas.drawPath(mBodyPath, mStrokePaint);
+
+        // ---- 身体面板接缝线：两条水平半透明白线，模拟面板拼接 ----
+        float seam1Y = topY + h * 0.30f;
+        float seam2Y = topY + h * 0.60f;
+        // 在这些 Y 高度上，计算身体的大致宽度
+        float seam1HW = topHW + (midHW - topHW) * (0.30f / 0.35f);
+        float seam2HW = midHW * 0.7f; // 下半部分已收窄
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(0.8f));
+        mDetailPaint.setColor(0x66FFFFFF); // 40% 透明白色
+        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        mDetailPaint.clearShadowLayer();
+        canvas.drawLine(-seam1HW * 0.8f, seam1Y, seam1HW * 0.8f, seam1Y, mDetailPaint);
+        canvas.drawLine(-seam2HW * 0.8f, seam2Y, seam2HW * 0.8f, seam2Y, mDetailPaint);
+
+        // ---- 肩甲：身体上方两侧略深色的小三角区域，定义肩膀 ----
+        drawShoulderPad(canvas, -midHW, topY, midY, true);
+        drawShoulderPad(canvas, midHW, topY, midY, false);
+
+        // ---- 胸部徽章：身体中心的青色圆环（核心/心脏图标） ----
+        float emblemCY = topY + h * 0.42f;
+        float emblemR = dp(CHEST_EMBLEM_R);
+        // 外圈青色发光
+        mAccentPaint.setStyle(Paint.Style.STROKE);
+        mAccentPaint.setStrokeWidth(dp(2f));
+        mAccentPaint.setColor(COLOR_EYE_CYAN);
+        mAccentPaint.setShadowLayer(dp(8f) * glow, 0, 0, COLOR_EYE_CYAN);
+        canvas.drawCircle(0, emblemCY, emblemR, mAccentPaint);
+        mAccentPaint.clearShadowLayer();
+        // 内圈更小的实心青色圆
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(0x4400D4FF); // 半透明青色填充
+        mDetailPaint.clearShadowLayer();
+        canvas.drawCircle(0, emblemCY, emblemR * 0.55f, mDetailPaint);
+        // 中心白色小点
+        mDetailPaint.setColor(0xAAFFFFFF);
+        canvas.drawCircle(0, emblemCY, dp(2.5f), mDetailPaint);
+    }
+
+    /**
+     * 绘制肩甲三角区域
+     *
+     * 在身体上方侧边绘制小的深色三角形区域，营造肩膀的厚度感。
+     *
+     * @param canvas 画布
+     * @param sideX  身体侧边 X 坐标（px）
+     * @param topY   身体顶部 Y（px）
+     * @param midY   身体中部 Y（px）
+     * @param isLeft 是否为左侧肩甲
+     */
+    private void drawShoulderPad(Canvas canvas, float sideX, float topY,
+                                  float midY, boolean isLeft) {
+        mTempPath.reset();
+        float padW = dp(12f);
+        float padH = dp(25f);
+        float baseX = isLeft ? sideX : sideX;
+        float dirMul = isLeft ? -1f : 1f;
+
+        // 从肩膀连接点向外延伸的小梯形
+        mTempPath.moveTo(baseX, topY + dp(10f));
+        mTempPath.lineTo(baseX + dirMul * padW * 0.3f, topY + dp(5f));
+        mTempPath.lineTo(baseX + dirMul * padW * 0.5f, topY + padH * 0.5f);
+        mTempPath.lineTo(baseX, topY + padH);
+        mTempPath.close();
+
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(0x22000000); // 非常轻微的深色覆盖
+        mDetailPaint.clearShadowLayer();
+        canvas.drawPath(mTempPath, mDetailPaint);
     }
 
     // ==================== 手臂 ====================
@@ -702,6 +907,7 @@ public class CatRenderer {
      *
      * 每条手臂由上臂 + 前臂 + 手组成，各段之间用深色关节球连接。
      * 右臂有基于 idleTimer 的挥手摆动动画。
+     * 新增：肘部和腕部青色点缀、腕部护腕环。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -719,7 +925,7 @@ public class CatRenderer {
     }
 
     /**
-     * 绘制左臂（自然下垂姿态）
+     * 绘制左臂（自然下垂姿态，含肘部点缀和腕部护腕）
      *
      * 上臂向下偏左约 15°，前臂继续向下略向内弯曲。
      *
@@ -754,6 +960,13 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mStrokePaint);
 
+        // ---- 肘部青色点缀 ----
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(COLOR_EYE_CYAN);
+        mDetailPaint.setShadowLayer(dp(3f), 0, 0, COLOR_EYE_CYAN);
+        canvas.drawCircle(elbowX, elbowY, dp(2f), mDetailPaint);
+        mDetailPaint.clearShadowLayer();
+
         // 前臂方向：继续向下偏内 10°
         float forearmAngle = (float) Math.toRadians(-80f);
         float forearmLen = dp(ARM_FOREARM_LEN);
@@ -766,6 +979,9 @@ public class CatRenderer {
         // 腕关节球
         canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mDarkFillPaint);
         canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mStrokePaint);
+
+        // ---- 腕部护腕环：比手臂管略宽的深色描边圆环 ----
+        drawWristCuff(canvas, wristX, wristY);
 
         // 绘制手（手指散开）
         drawHand(canvas, wristX, wristY, forearmAngle, false);
@@ -780,7 +996,7 @@ public class CatRenderer {
     }
 
     /**
-     * 绘制右臂（举起挥手姿态，带摆动动画）
+     * 绘制右臂（举起挥手姿态，带摆动动画，含肘部点缀和腕部护腕）
      *
      * 上臂向上偏右约 45°，前臂向上再弯曲，手在最高点挥动。
      * 利用 state.idleTimer 驱动细微的挥手摆动。
@@ -820,6 +1036,13 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mStrokePaint);
 
+        // ---- 肘部青色点缀 ----
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(COLOR_EYE_CYAN);
+        mDetailPaint.setShadowLayer(dp(3f), 0, 0, COLOR_EYE_CYAN);
+        canvas.drawCircle(elbowX, elbowY, dp(2f), mDetailPaint);
+        mDetailPaint.clearShadowLayer();
+
         // 前臂方向：从肘部向上（约 -110° + 摆动的一半）
         float forearmAngleDeg = -110f + waveOsc * 0.5f;
         float forearmAngle = (float) Math.toRadians(forearmAngleDeg);
@@ -834,6 +1057,9 @@ public class CatRenderer {
         canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mDarkFillPaint);
         canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mStrokePaint);
 
+        // ---- 腕部护腕环 ----
+        drawWristCuff(canvas, wristX, wristY);
+
         // 绘制手（张开的挥手姿势）
         drawHand(canvas, wristX, wristY, forearmAngle, true);
 
@@ -844,6 +1070,24 @@ public class CatRenderer {
         canvas.drawCircle(0, 0, dp(JOINT_R), mStrokePaint);
 
         canvas.restore();
+    }
+
+    /**
+     * 绘制腕部护腕环
+     *
+     * 在腕部位置绘制一个比手臂管略宽的深色描边圆环，
+     * 作为手臂末端装饰细节。
+     *
+     * @param canvas 画布
+     * @param wristX 腕部 X（px）
+     * @param wristY 腕部 Y（px）
+     */
+    private void drawWristCuff(Canvas canvas, float wristX, float wristY) {
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(1.5f));
+        mDetailPaint.setColor(COLOR_OUTLINE);
+        mDetailPaint.clearShadowLayer();
+        canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 1.15f, mDetailPaint);
     }
 
     /**
@@ -915,8 +1159,6 @@ public class CatRenderer {
 
         for (int i = 0; i < FINGER_COUNT; i++) {
             float angle = (float) Math.toRadians(startAngle + step * i);
-            float fx = (float) Math.cos(angle) * fingerLen;
-            float fy = (float) Math.sin(angle) * fingerLen;
 
             // 手指管段
             canvas.save();
@@ -979,6 +1221,7 @@ public class CatRenderer {
      *
      * 头部是机器人最大的部件，约占总高度 45%。
      * 使用高圆角使其接近圆形/椭圆形的可爱造型。
+     * 新增：头部左上方高光弧，增添立体光泽感。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1004,6 +1247,77 @@ public class CatRenderer {
         mStrokePaint.setColor(COLOR_OUTLINE);
         mStrokePaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, r, r, mStrokePaint);
+
+        // ---- 头部高光弧：左上方白色半透明弧线，模拟光照反射 ----
+        drawHeadHighlight(canvas, hw, hh, cy, r);
+    }
+
+    /**
+     * 绘制头部左上方的高光弧
+     *
+     * 在头部左上区域绘制一条半透明白色弧线，模拟环境光在光滑表面上的反射，
+     * 增强头部的立体质感。
+     *
+     * @param canvas 画布
+     * @param hw     头部半宽（px）
+     * @param hh     头部半高（px）
+     * @param cy     头部中心 Y（px）
+     * @param r      头部圆角（px）
+     */
+    private void drawHeadHighlight(Canvas canvas, float hw, float hh, float cy, float r) {
+        // 在头部左上区域画一段弧线，模拟高光反射
+        float arcCX = -hw * 0.35f;
+        float arcCY = cy - hh * 0.35f;
+        float arcR = r * 0.9f;
+
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(2.5f));
+        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        mDetailPaint.setColor(0x55FFFFFF); // 33% 透明白色
+        mDetailPaint.setShadowLayer(dp(2f), 0, 0, 0x33FFFFFF);
+
+        mTempRect3.set(arcCX - arcR, arcCY - arcR, arcCX + arcR, arcCY + arcR);
+        canvas.drawArc(mTempRect3, 200f, 70f, false, mDetailPaint);
+        mDetailPaint.clearShadowLayer();
+    }
+
+    // ==================== 天线 ====================
+
+    /**
+     * 绘制头部顶端的天线
+     *
+     * 从头部正中顶部向上延伸的细深色线杆，顶端有一个带青色辉光的小圆球。
+     * 天线增加了机器人的科技感和辨识度。
+     *
+     * @param canvas 画布
+     * @param state  机器人状态
+     * @param glow   发光强度
+     */
+    private void drawAntenna(Canvas canvas, RobotState state, float glow) {
+        float headTopY = dp(HEAD_CY) - dp(HEAD_H) / 2f;
+        float antennaBaseY = headTopY;
+        float antennaTipY = headTopY - dp(ANTENNA_HEIGHT);
+        float ballR = dp(ANTENNA_BALL_R);
+
+        // 天线杆（深灰色细线）
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(2f));
+        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        mDetailPaint.setColor(COLOR_JOINT);
+        mDetailPaint.clearShadowLayer();
+        canvas.drawLine(0, antennaBaseY, 0, antennaTipY, mDetailPaint);
+
+        // 天线顶部青色发光球
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(COLOR_EYE_CYAN);
+        mDetailPaint.setShadowLayer(dp(6f) * glow, 0, 0, COLOR_EYE_CYAN);
+        canvas.drawCircle(0, antennaTipY, ballR, mDetailPaint);
+        mDetailPaint.clearShadowLayer();
+
+        // 球体高光（白色小点）
+        mDetailPaint.setColor(0xAAFFFFFF);
+        canvas.drawCircle(-ballR * 0.25f, antennaTipY - ballR * 0.25f,
+                ballR * 0.3f, mDetailPaint);
     }
 
     // ==================== 侧耳（耳机垫块） ====================
@@ -1082,6 +1396,7 @@ public class CatRenderer {
      *
      * 横跨头部中间的深色圆角矩形，作为眼睛的背景，
      * 营造出机器人显示屏的视觉效果。
+     * 新增：内侧高光边框，增加面板深度感。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1108,6 +1423,16 @@ public class CatRenderer {
         mStrokePaint.setColor(setAlpha(COLOR_OUTLINE, 0x88));
         mStrokePaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, panelR, panelR, mStrokePaint);
+
+        // ---- 面板内高亮边框：1dp 内缩，更亮的灰色细线，营造凹陷深度感 ----
+        float inset = dp(1f);
+        mTempRect3.set(-panelW / 2f + inset, panelCY - panelH / 2f + inset,
+                panelW / 2f - inset, panelCY + panelH / 2f - inset);
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(1f));
+        mDetailPaint.setColor(COLOR_PANEL_HIGHLIGHT);
+        mDetailPaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect3, panelR - inset, panelR - inset, mDetailPaint);
     }
 
     // ==================== 眼睛 ====================
@@ -1232,9 +1557,10 @@ public class CatRenderer {
     // ==================== 额头装饰 ====================
 
     /**
-     * 绘制额头上的两个小圆点装饰
+     * 绘制额头上的三个小圆点装饰（三角形排列）
      *
      * 类似传感器/指示灯，位于头部上方区域，增加机器人的科技感细节。
+     * 从原来的两个点改为三角形排列的三个点（上方中间一个 + 下方左右各一个）。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1250,8 +1576,14 @@ public class CatRenderer {
         mDarkFillPaint.setStyle(Paint.Style.FILL);
         mDarkFillPaint.setColor(COLOR_JOINT);
         mDarkFillPaint.clearShadowLayer();
+
+        // 下方两个点（左右对称）
         canvas.drawCircle(-spacing / 2f, dotY, dotR, mDarkFillPaint);
         canvas.drawCircle(spacing / 2f, dotY, dotR, mDarkFillPaint);
+
+        // 上方中间一个点（组成三角形图案）
+        float topDotY = dotY - dp(8f);
+        canvas.drawCircle(0, topDotY, dotR, mDarkFillPaint);
 
         // 轮廓描边
         mStrokePaint.setStyle(Paint.Style.STROKE);
@@ -1260,6 +1592,40 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawCircle(-spacing / 2f, dotY, dotR, mStrokePaint);
         canvas.drawCircle(spacing / 2f, dotY, dotR, mStrokePaint);
+        canvas.drawCircle(0, topDotY, dotR, mStrokePaint);
+    }
+
+    // ==================== 面板指示灯 ====================
+
+    /**
+     * 绘制面部面板上的两个微型指示灯
+     *
+     * 在面部面板下方（眼睛下方）绘制两个小发光圆点，
+     * 左侧绿色、右侧琥珀色，模拟状态指示灯，增加科技感。
+     *
+     * @param canvas 画布
+     * @param state  机器人状态
+     * @param glow   发光强度
+     */
+    private void drawIndicatorLights(Canvas canvas, RobotState state, float glow) {
+        float panelCY = dp(HEAD_CY) + dp(PANEL_OFFSET_Y);
+        float panelHalfH = dp(PANEL_H) / 2f;
+        // 指示灯位于面板下方 65% 处
+        float indicatorY = panelCY + panelHalfH * 0.65f;
+        float indicatorR = dp(2f);
+        float indicatorSpacing = dp(15f);
+
+        // 左侧绿色指示灯
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(COLOR_INDICATOR_GREEN);
+        mDetailPaint.setShadowLayer(dp(4f) * glow, 0, 0, COLOR_INDICATOR_GREEN);
+        canvas.drawCircle(-indicatorSpacing, indicatorY, indicatorR, mDetailPaint);
+
+        // 右侧琥珀色指示灯
+        mDetailPaint.setColor(COLOR_INDICATOR_AMBER);
+        mDetailPaint.setShadowLayer(dp(4f) * glow, 0, 0, COLOR_INDICATOR_AMBER);
+        canvas.drawCircle(indicatorSpacing, indicatorY, indicatorR, mDetailPaint);
+        mDetailPaint.clearShadowLayer();
     }
 
     // ==================== 工具方法 ====================
