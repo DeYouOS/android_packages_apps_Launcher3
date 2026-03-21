@@ -264,6 +264,7 @@ import com.android.launcher3.widget.model.WidgetsListBaseEntry;
 import com.android.launcher3.widget.picker.WidgetsFullSheet;
 import com.android.launcher3.widget.picker.model.WidgetPickerDataProvider;
 import com.android.launcher3.widget.util.WidgetSizeHandler;
+import com.android.launcher3.robot.RobotPageView;
 import com.android.systemui.plugins.LauncherOverlayPlugin;
 import com.android.systemui.plugins.PluginListener;
 import com.android.systemui.plugins.shared.LauncherOverlayManager;
@@ -337,6 +338,9 @@ public class Launcher extends StatefulActivity<LauncherState>
 
     @Thunk
     DragLayer mDragLayer;
+
+    /** AutoPilot: 机器人动画覆盖层，叠加在 Workspace 之上，仅在第 0 页可见 */
+    private RobotPageView mRobotPageView;
 
     private WidgetManagerHelper mAppWidgetManager;
     private LauncherWidgetHolder mAppWidgetHolder;
@@ -1335,6 +1339,37 @@ public class Launcher extends StatefulActivity<LauncherState>
 
         mItemInflater = new ItemInflater<>(this, mAppWidgetHolder, getItemOnClickListener(),
                 mFocusHandler, new CellLayout(mWorkspace.getContext(), mWorkspace));
+
+        // AutoPilot: 初始化机器人动画覆盖层，叠加在 Workspace 和 Hotseat 之上
+        // 使用 Overlay 方式而非 Workspace 子视图，避免破坏 PagedView 的 CellLayout 索引假设
+        initRobotPageOverlay();
+    }
+
+    /**
+     * 初始化 AutoPilot 机器人动画覆盖层
+     *
+     * 将 RobotPageView 作为 DragLayer 的子视图添加，层级在 Workspace/Hotseat 之上、
+     * ScrimView 之下。通过 Workspace 的 onPageEndTransition 回调控制可见性：
+     * 仅在桌面第 0 页时显示，滑动到其他页面时隐藏（GONE）。
+     *
+     * 这种 Overlay 方式不修改 Workspace/PagedView 的子视图结构，
+     * 避免了将非 CellLayout 视图插入 PagedView 导致的 ClassCastException 和索引偏移问题。
+     */
+    private void initRobotPageOverlay() {
+        if (!android.os.SystemProperties.getBoolean("persist.launcher.robot_page", true)) {
+            return;
+        }
+        mRobotPageView = new RobotPageView(this, this);
+        // 找到 Workspace 在 DragLayer 中的索引，在其后插入（覆盖在上方）
+        int workspaceIndex = mDragLayer.indexOfChild(mWorkspace);
+        // 插入到 Workspace 之后（hotseat 之上），确保能覆盖桌面内容
+        mDragLayer.addView(mRobotPageView, workspaceIndex + 1,
+                new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+        // 首页默认可见
+        mRobotPageView.setVisibility(View.VISIBLE);
+        mRobotPageView.setActive(true);
     }
 
     /**
@@ -1719,6 +1754,11 @@ public class Launcher extends StatefulActivity<LauncherState>
     @Override
     public void onDestroy() {
         super.onDestroy();
+        // AutoPilot: 停用机器人覆盖层，释放传感器和渲染线程
+        if (mRobotPageView != null) {
+            mRobotPageView.setActive(false);
+            mRobotPageView = null;
+        }
         ACTIVITY_TRACKER.onContextDestroyed(this);
 
         SettingsCache.INSTANCE.get(this).unregister(TOUCHPAD_NATURAL_SCROLLING,
@@ -2418,7 +2458,14 @@ public class Launcher extends StatefulActivity<LauncherState>
      * Informs us that the page transition has ended, so that we can react to the newly selected
      * page if we want to.
      */
-    public void onPageEndTransition() {}
+    public void onPageEndTransition() {
+        // AutoPilot: 桌面第 0 页时显示机器人覆盖层，其他页隐藏
+        if (mRobotPageView != null) {
+            boolean isFirstPage = mWorkspace.getCurrentPage() == 0;
+            mRobotPageView.setVisibility(isFirstPage ? View.VISIBLE : View.GONE);
+            mRobotPageView.setActive(isFirstPage);
+        }
+    }
 
     /**
      * See {@code LauncherBindingDelegate}

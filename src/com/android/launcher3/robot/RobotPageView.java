@@ -1,19 +1,19 @@
 /*
  * RobotPageView — 机器人动画页的容器 View
  *
- * 作为 Workspace 的第 0 页嵌入 PagedView，替代原有 CellLayout。
- * 继承 FrameLayout 以兼容 PagedView 对子 View 的测量/布局逻辑。
+ * 作为 DragLayer 的 Overlay 子视图叠加在 Workspace 之上，不修改 PagedView 的子视图结构。
+ * 继承 FrameLayout，通过 MATCH_PARENT 覆盖整个桌面区域。
  *
  * 内部分层结构：
  * 1. RobotSurfaceView（底层）：独立渲染线程，60fps 绘制机器人动画
  * 2. RobotCommandOverlay（顶层）：AI 指令触发的 UI 浮层（二维码、信息卡片等）
  *
- * 生命周期由 Workspace.onPageEndTransition() 驱动：
- * - 当用户翻到机器人页 → setActive(true) → 启动传感器 + 渲染
- * - 当用户离开机器人页 → setActive(false) → 停止传感器 + 渲染（省电）
+ * 生命周期由 Launcher.onPageEndTransition() 驱动：
+ * - 桌面第 0 页 → VISIBLE + setActive(true) → 启动传感器 + 渲染
+ * - 其他页面 → GONE + setActive(false) → 停止传感器 + 渲染（省电）
  *
- * 触控策略：不拦截水平滑动（让 PagedView 处理翻页），
- * 仅拦截点击事件（未来用于 AI 交互）。
+ * 触控策略：onInterceptTouchEvent 和 onTouchEvent 均返回 false，
+ * 所有触摸事件穿透到下层 Workspace，确保滑动翻页正常工作。
  */
 package com.android.launcher3.robot;
 
@@ -31,9 +31,9 @@ import com.android.launcher3.Launcher;
  *
  * 职责：
  * 1. 管理 RobotSurfaceView 和 RobotCommandOverlay 的生命周期
- * 2. 接收 Workspace 的 setActive() 回调，控制渲染和传感器启停
+ * 2. 接收 Launcher 的 setActive() 回调，控制渲染和传感器启停
  * 3. 订阅 RobotCommandBus，将指令分发给动画层和 UI 浮层
- * 4. 不消费水平滑动事件，确保 PagedView 翻页正常工作
+ * 4. 触摸事件完全穿透，确保 Workspace 翻页和拖拽正常工作
  */
 public class RobotPageView extends FrameLayout {
 
@@ -83,7 +83,7 @@ public class RobotPageView extends FrameLayout {
     }
 
     /**
-     * 由 Workspace.onPageEndTransition() 调用，控制页面活跃状态
+     * 由 Launcher.onPageEndTransition() 调用，控制页面活跃状态
      *
      * 活跃时启动传感器监听和渲染线程，离开时停止以节省电量。
      * 车载场景持续充电，但停止不可见页面的渲染仍是最佳实践。
@@ -127,14 +127,20 @@ public class RobotPageView extends FrameLayout {
     }
 
     /**
-     * 触控拦截策略：不拦截水平滑动
+     * 触控穿透策略：作为 DragLayer Overlay，所有触摸事件穿透到下层 Workspace
      *
-     * 让 PagedView（Workspace）处理水平滑动翻页，
-     * 本 View 只处理点击事件（未来 AI 交互用）。
-     * 返回 false 表示不拦截任何触控事件。
+     * onInterceptTouchEvent 返回 false，不拦截子 View 事件。
+     * onTouchEvent 也返回 false，不消费任何触摸事件。
+     * 这确保 Workspace 能正常处理滑动翻页和长按拖拽。
+     * 未来 AI 交互（如点击机器人触发对话）可通过 RobotCommandOverlay 单独处理。
      */
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
+        return false;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent ev) {
         return false;
     }
 }

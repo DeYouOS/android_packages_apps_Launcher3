@@ -20,7 +20,7 @@ import java.util.Random;
  * - ParticleSystem × 2：背景粒子（50个）+ 拖尾粒子（30个）
  * - RobotRenderThread：60fps 渲染线程
  *
- * setZOrderOnTop(false) 确保此 SurfaceView 不会遮挡上层的 View 覆盖层。
+ * setZOrderMediaOverlay(true) 确保 Surface 绘制在普通 View 之上，机器人动画可见。
  */
 public class RobotSurfaceView extends SurfaceView implements SurfaceHolder.Callback {
 
@@ -88,8 +88,10 @@ public class RobotSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         mTrailParticles = new ParticleSystem(TRAIL_PARTICLE_COUNT);
         mRandom = new Random();
 
-        // 不遮挡上层 View 覆盖层
-        setZOrderOnTop(false);
+        // MediaOverlay 模式：Surface 绘制在普通 View（Workspace）之上，
+        // 但在 ZOrderOnTop 的 Surface 之下，确保机器人动画可见且不遮挡系统 UI
+        setZOrderMediaOverlay(true);
+        getHolder().setFormat(android.graphics.PixelFormat.TRANSLUCENT);
         getHolder().addCallback(this);
     }
 
