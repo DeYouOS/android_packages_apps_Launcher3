@@ -108,6 +108,11 @@ public class RobotPhysicsEngine {
         mScreenHeight = height;
         mState.screenWidth = width;
         mState.screenHeight = height;
+        // 初始化身体到屏幕中心，弹簧也重置到中心
+        mBodyXSpring.setPosition(width / 2f);
+        mBodyYSpring.setPosition(height / 2f);
+        mState.bodyX = width / 2f;
+        mState.bodyY = height / 2f;
     }
 
     /**
@@ -136,8 +141,10 @@ public class RobotPhysicsEngine {
          * 纵向力映射为 Y 偏移：longitudinalForce * 屏幕高度 * 0.2
          * 正纵向力（加速）→ 身体向下偏移（惯性效果），取正号
          */
-        float targetX = -motion.lateralForce * mScreenWidth * EDGE_THRESHOLD_RATIO;
-        float targetY = motion.longitudinalForce * mScreenHeight * 0.2f;
+        float centerX = mScreenWidth / 2f;
+        float centerY = mScreenHeight / 2f;
+        float targetX = centerX + (-motion.lateralForce * mScreenWidth * EDGE_THRESHOLD_RATIO);
+        float targetY = centerY + (motion.longitudinalForce * mScreenHeight * 0.2f);
 
         mBodyXSpring.setTarget(targetX);
         mBodyYSpring.setTarget(targetY);

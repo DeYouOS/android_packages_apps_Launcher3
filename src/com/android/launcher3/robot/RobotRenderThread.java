@@ -2,8 +2,9 @@ package com.android.launcher3.robot;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.SurfaceTexture;
 import android.os.Process;
-import android.view.SurfaceHolder;
+import android.view.TextureView;
 
 /**
  * 机器人动画渲染线程
@@ -28,8 +29,8 @@ public class RobotRenderThread extends Thread {
     /** 非活跃表情时拖尾粒子每帧发射数量 */
     private static final int TRAIL_EMIT_COUNT = 3;
 
-    /** SurfaceHolder 引用，用于锁定/解锁 Canvas */
-    private final SurfaceHolder mHolder;
+    /** TextureView 引用，用于锁定/解锁 Canvas（在正常 View 层级中渲染，无 Z-order 问题） */
+    private final TextureView mTextureView;
 
     /** 物理引擎，计算机器人位置和姿态 */
     private final RobotPhysicsEngine mPhysics;
@@ -55,21 +56,21 @@ public class RobotRenderThread extends Thread {
     /**
      * 构造渲染线程
      *
-     * @param holder         Surface 持有者，用于获取 Canvas
+     * @param textureView    TextureView 实例，用于获取 Canvas
      * @param physics        物理引擎实例
      * @param renderer       渲染器实例
      * @param bgParticles    背景粒子系统
      * @param trailParticles 拖尾粒子系统
      * @param sensorManager  传感器管理器，用于获取最新运动数据
      */
-    public RobotRenderThread(SurfaceHolder holder,
+    public RobotRenderThread(TextureView textureView,
                              RobotPhysicsEngine physics,
                              RobotRenderer renderer,
                              ParticleSystem bgParticles,
                              ParticleSystem trailParticles,
                              CarSensorManager sensorManager) {
         super("RobotRenderThread");
-        mHolder = holder;
+        mTextureView = textureView;
         mPhysics = physics;
         mRenderer = renderer;
         mBgParticles = bgParticles;
@@ -96,8 +97,11 @@ public class RobotRenderThread extends Thread {
         // 提升线程优先级到显示级别，减少被调度器抢占的概率
         Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY);
         mRunning = true;
+        android.util.Log.d("AutoPilot", "RobotRenderThread started");
+        int frameCount = 0;
 
         while (mRunning) {
+            frameCount++;
             long frameStart = System.nanoTime();
 
             // 步骤1：获取最新传感器数据
@@ -116,25 +120,30 @@ public class RobotRenderThread extends Thread {
                 mTrailParticles.emit(state.bodyX, state.bodyY, TRAIL_EMIT_COUNT);
             }
 
-            // 步骤5：Canvas 绘制
+            // 步骤5：Canvas 绘制（TextureView.lockCanvas 在 SurfaceTexture 销毁后返回 null）
             Canvas canvas = null;
             try {
-                canvas = mHolder.lockCanvas();
+                canvas = mTextureView.lockCanvas();
                 if (canvas != null) {
-                    // 绘制机器人主体
+                    if (frameCount <= 3) {
+                        android.util.Log.d("AutoPilot", "RenderThread frame=" + frameCount
+                                + " canvas=" + canvas.getWidth() + "x" + canvas.getHeight()
+                                + " robotPos=" + state.bodyX + "," + state.bodyY);
+                    }
                     mRenderer.draw(canvas, state);
-                    // 绘制背景粒子（在机器人之上叠加）
                     mBgParticles.draw(canvas, mParticlePaint);
-                    // 绘制拖尾粒子
                     mTrailParticles.draw(canvas, mParticlePaint);
+                } else if (frameCount <= 3) {
+                    android.util.Log.w("AutoPilot", "RenderThread frame=" + frameCount + " canvas=null");
                 }
+            } catch (Exception e) {
+                android.util.Log.e("AutoPilot", "RenderThread draw error", e);
             } finally {
-                // 确保 Canvas 被正确释放，即使绘制过程出现异常
                 if (canvas != null) {
                     try {
-                        mHolder.unlockCanvasAndPost(canvas);
-                    } catch (IllegalStateException e) {
-                        // Surface 已被销毁，忽略异常
+                        mTextureView.unlockCanvasAndPost(canvas);
+                    } catch (Exception e) {
+                        // ignore
                     }
                 }
             }

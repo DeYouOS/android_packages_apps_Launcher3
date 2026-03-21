@@ -1,28 +1,26 @@
 package com.android.launcher3.robot;
 
 import android.content.Context;
+import android.graphics.SurfaceTexture;
 import android.util.AttributeSet;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.TextureView;
 
 import java.util.Random;
 
 /**
- * 机器人动画 SurfaceView
+ * 机器人动画 TextureView
  *
- * 封装 SurfaceView 的生命周期管理，协调物理引擎、渲染器、
- * 粒子系统和渲染线程。外部只需将此 View 添加到布局中并调用
- * startRendering()/stopRendering() 控制动画播放。
+ * 使用 TextureView 替代 SurfaceView，在正常 View 层级中渲染。
+ * TextureView 没有独立 Surface 层，不存在 Z-order 问题，
+ * 作为 DragLayer Overlay 时不会用黑色遮挡下层 Workspace。
  *
  * 内部组件：
  * - RobotPhysicsEngine：物理模拟（位置、手臂角度、表情）
  * - RobotRenderer：Canvas 2D 绘制
  * - ParticleSystem × 2：背景粒子（50个）+ 拖尾粒子（30个）
  * - RobotRenderThread：60fps 渲染线程
- *
- * setZOrderMediaOverlay(true) 确保 Surface 绘制在普通 View 之上，机器人动画可见。
  */
-public class RobotSurfaceView extends SurfaceView implements SurfaceHolder.Callback {
+public class RobotSurfaceView extends TextureView implements TextureView.SurfaceTextureListener {
 
     /** 背景粒子池容量 */
     private static final int BG_PARTICLE_COUNT = 50;
@@ -45,40 +43,26 @@ public class RobotSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     /** 运动拖尾粒子系统 */
     private final ParticleSystem mTrailParticles;
 
-    /** 渲染线程（Surface 存在期间创建和销毁） */
+    /** 渲染线程（SurfaceTexture 存在期间创建和销毁） */
     private RobotRenderThread mRenderThread;
 
     /** 随机数生成器，用于初始化背景粒子位置 */
     private final Random mRandom;
 
-    /**
-     * 代码创建构造函数
-     *
-     * @param context Android 上下文
-     */
+    /** SurfaceTexture 是否可用 */
+    private boolean mSurfaceAvailable = false;
+
     public RobotSurfaceView(Context context) {
         this(context, null);
     }
 
-    /**
-     * XML 布局构造函数
-     *
-     * @param context Android 上下文
-     * @param attrs   XML 属性集
-     */
     public RobotSurfaceView(Context context, AttributeSet attrs) {
         this(context, attrs, 0);
     }
 
     /**
-     * 完整参数构造函数
-     *
-     * 初始化所有内部组件并注册 SurfaceHolder 回调。
-     * setZOrderOnTop(false) 确保不遮挡上层 View（如 RobotCommandOverlay）。
-     *
-     * @param context  Android 上下文
-     * @param attrs    XML 属性集
-     * @param defStyle 默认样式
+     * 初始化所有内部组件并注册 SurfaceTexture 监听。
+     * setOpaque(false) 启用透明背景，未渲染区域显示下层 Workspace。
      */
     public RobotSurfaceView(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
@@ -88,79 +72,53 @@ public class RobotSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         mTrailParticles = new ParticleSystem(TRAIL_PARTICLE_COUNT);
         mRandom = new Random();
 
-        // MediaOverlay 模式：Surface 绘制在普通 View（Workspace）之上，
-        // 但在 ZOrderOnTop 的 Surface 之下，确保机器人动画可见且不遮挡系统 UI
-        setZOrderMediaOverlay(true);
-        getHolder().setFormat(android.graphics.PixelFormat.TRANSLUCENT);
-        getHolder().addCallback(this);
+        // TextureView 透明模式：未绘制区域透明，不遮挡下层 View
+        setOpaque(false);
+        setSurfaceTextureListener(this);
     }
 
-    /**
-     * Surface 创建回调
-     *
-     * Surface 可用后创建渲染线程并启动。
-     * 同时在屏幕上随机散布初始背景粒子。
-     *
-     * @param holder Surface 持有者
-     */
     @Override
-    public void surfaceCreated(SurfaceHolder holder) {
-        // 在全屏范围内随机散布初始背景粒子
-        int width = getWidth();
-        int height = getHeight();
+    public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+        android.util.Log.d("AutoPilot", "onSurfaceTextureAvailable: " + width + "x" + height);
+        mSurfaceAvailable = true;
+        mPhysics.setScreenSize(width, height);
         if (width > 0 && height > 0) {
             initBackgroundParticles(width, height);
         }
-
         startRendering();
     }
 
-    /**
-     * Surface 尺寸变化回调
-     *
-     * 更新物理引擎的屏幕尺寸，机器人位置将被重置到新中心。
-     *
-     * @param holder Surface 持有者
-     * @param format 像素格式
-     * @param width  新宽度（像素）
-     * @param height 新高度（像素）
-     */
     @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+    public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
         mPhysics.setScreenSize(width, height);
-
-        // 尺寸变化后重新散布背景粒子
         initBackgroundParticles(width, height);
     }
 
-    /**
-     * Surface 销毁回调
-     *
-     * Surface 即将被销毁前停止渲染线程，避免在无效 Surface 上绘制。
-     *
-     * @param holder Surface 持有者
-     */
     @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
+    public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+        mSurfaceAvailable = false;
         stopRendering();
+        // 返回 true 表示由系统释放 SurfaceTexture
+        return true;
+    }
+
+    @Override
+    public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+        // 每帧更新回调，无需额外处理
     }
 
     /**
-     * 启动渲染
-     *
-     * 创建并启动渲染线程。如果线程已在运行则不重复创建。
-     * 需要在 Surface 可用后调用。
+     * 启动渲染线程。如已在运行或 SurfaceTexture 不可用则跳过。
      */
     public void startRendering() {
-        if (mRenderThread != null && mRenderThread.isRunning()) {
-            return;
-        }
+        android.util.Log.d("AutoPilot", "startRendering: surfaceAvailable=" + mSurfaceAvailable
+                + " threadRunning=" + (mRenderThread != null && mRenderThread.isRunning()));
+        if (!mSurfaceAvailable) return;
+        if (mRenderThread != null && mRenderThread.isRunning()) return;
 
-        // 获取传感器管理器（使用 View 的 Context）
         CarSensorManager sensorManager = CarSensorManager.getInstance(getContext());
-
         mRenderThread = new RobotRenderThread(
-                getHolder(),
+                this,
                 mPhysics,
                 mRenderer,
                 mBgParticles,
@@ -171,10 +129,7 @@ public class RobotSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     /**
-     * 停止渲染
-     *
-     * 安全停止渲染线程，等待其退出后释放引用。
-     * 在 Surface 销毁或 Activity 暂停时调用。
+     * 停止渲染线程。
      */
     public void stopRendering() {
         if (mRenderThread != null) {
@@ -184,12 +139,7 @@ public class RobotSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     /**
-     * 处理外部命令
-     *
-     * 将命令转发给渲染器处理表情变化等效果。
-     * 目前支持 ChangeExpression 命令。
-     *
-     * @param cmd 机器人命令
+     * 处理外部命令（表情变化等）。
      */
     public void onCommand(RobotCommand cmd) {
         if (cmd instanceof RobotCommand.ChangeExpression) {
@@ -200,16 +150,9 @@ public class RobotSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     /**
-     * 在屏幕范围内随机散布初始背景粒子
-     *
-     * 将粒子均匀分布在整个屏幕区域，使动画启动时就有氛围感，
-     * 而不是从空白开始逐渐出现。
-     *
-     * @param width  屏幕宽度（像素）
-     * @param height 屏幕高度（像素）
+     * 在屏幕范围内随机散布初始背景粒子，使动画启动时有氛围感。
      */
     private void initBackgroundParticles(int width, int height) {
-        // 每次发射少量粒子，在不同位置多次调用以覆盖全屏
         int batchCount = BG_PARTICLE_COUNT / BG_INIT_EMIT_COUNT;
         for (int i = 0; i < batchCount; i++) {
             float rx = mRandom.nextFloat() * width;

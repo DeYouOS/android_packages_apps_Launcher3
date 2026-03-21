@@ -66,6 +66,19 @@ public class SpringSolver {
     }
 
     /**
+     * 直接设置弹簧当前位置并清零速度
+     *
+     * 用于初始化或重置场景，跳过弹簧过渡动画直接定位。
+     *
+     * @param position 新的当前位置
+     */
+    public void setPosition(float position) {
+        mPosition = position;
+        mVelocity = 0f;
+        mTarget = position;
+    }
+
+    /**
      * 获取当前弹簧位置
      *
      * @return 当前位置值

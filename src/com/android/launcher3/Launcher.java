@@ -1356,20 +1356,32 @@ public class Launcher extends StatefulActivity<LauncherState>
      * 避免了将非 CellLayout 视图插入 PagedView 导致的 ClassCastException 和索引偏移问题。
      */
     private void initRobotPageOverlay() {
-        if (!android.os.SystemProperties.getBoolean("persist.launcher.robot_page", true)) {
+        boolean robotEnabled = android.os.SystemProperties.getBoolean(
+                "persist.launcher.robot_page", true);
+        android.util.Log.d("AutoPilot", "initRobotPageOverlay: robotEnabled=" + robotEnabled
+                + " mDragLayer=" + mDragLayer + " mWorkspace=" + mWorkspace
+                + " mHotseat=" + mHotseat);
+        if (!robotEnabled) {
             return;
         }
-        mRobotPageView = new RobotPageView(this, this);
-        // 找到 Workspace 在 DragLayer 中的索引，在其后插入（覆盖在上方）
-        int workspaceIndex = mDragLayer.indexOfChild(mWorkspace);
-        // 插入到 Workspace 之后（hotseat 之上），确保能覆盖桌面内容
-        mDragLayer.addView(mRobotPageView, workspaceIndex + 1,
-                new ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT));
-        // 首页默认可见
-        mRobotPageView.setVisibility(View.VISIBLE);
-        mRobotPageView.setActive(true);
+        try {
+            mRobotPageView = new RobotPageView(this, this);
+            int workspaceIndex = mDragLayer.indexOfChild(mWorkspace);
+            android.util.Log.d("AutoPilot", "workspaceIndex=" + workspaceIndex
+                    + " dragLayerChildCount=" + mDragLayer.getChildCount());
+            mDragLayer.addView(mRobotPageView, workspaceIndex + 1,
+                    new ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT));
+            mRobotPageView.setVisibility(View.VISIBLE);
+            mRobotPageView.setActive(true);
+            if (mHotseat != null) mHotseat.setVisibility(View.GONE);
+            View pageIndicator = findViewById(R.id.page_indicator_container);
+            if (pageIndicator != null) pageIndicator.setVisibility(View.GONE);
+            android.util.Log.d("AutoPilot", "RobotPageView added OK, hotseat GONE");
+        } catch (Exception e) {
+            android.util.Log.e("AutoPilot", "initRobotPageOverlay FAILED", e);
+        }
     }
 
     /**
@@ -2381,6 +2393,24 @@ public class Launcher extends StatefulActivity<LauncherState>
      */
     public void finishBindingItems(IntSet pagesBoundFirst) {
         TestEventEmitter.sendEvent(TestEvent.WORKSPACE_FINISH_LOADING);
+        // binding 完成后重新隐藏 hotseat（binding 流程会将 hotseat 重置为 VISIBLE）
+        enforceRobotPageVisibility();
+    }
+
+    /**
+     * 强制执行机器人页面的可见性规则
+     *
+     * binding 流程（ModelCallbacks.startBinding → finishBindingItems）会重置 hotseat 为 VISIBLE，
+     * 覆盖 initRobotPageOverlay 中设的 GONE。此方法在 binding 完成后重新强制隐藏。
+     */
+    private void enforceRobotPageVisibility() {
+        if (mRobotPageView == null) return;
+        boolean isFirstPage = mWorkspace.getCurrentPage() == 0;
+        if (isFirstPage) {
+            if (mHotseat != null) mHotseat.setVisibility(View.GONE);
+            View pageIndicator = findViewById(R.id.page_indicator_container);
+            if (pageIndicator != null) pageIndicator.setVisibility(View.GONE);
+        }
     }
 
     private boolean canAnimatePageChange() {
@@ -2459,11 +2489,18 @@ public class Launcher extends StatefulActivity<LauncherState>
      * page if we want to.
      */
     public void onPageEndTransition() {
-        // AutoPilot: 桌面第 0 页时显示机器人覆盖层，其他页隐藏
         if (mRobotPageView != null) {
             boolean isFirstPage = mWorkspace.getCurrentPage() == 0;
             mRobotPageView.setVisibility(isFirstPage ? View.VISIBLE : View.GONE);
             mRobotPageView.setActive(isFirstPage);
+            // 机器人全屏时隐藏底部栏和页面指示器，其他页恢复
+            if (mHotseat != null) {
+                mHotseat.setVisibility(isFirstPage ? View.GONE : View.VISIBLE);
+            }
+            View pageIndicator = findViewById(R.id.page_indicator_container);
+            if (pageIndicator != null) {
+                pageIndicator.setVisibility(isFirstPage ? View.GONE : View.VISIBLE);
+            }
         }
     }
 

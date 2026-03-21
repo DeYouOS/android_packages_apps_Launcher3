@@ -1,7 +1,9 @@
 package com.android.launcher3.robot;
 
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.PorterDuff;
 import android.graphics.RectF;
 
 /**
@@ -134,8 +136,9 @@ public class RobotRenderer {
             mDensity = canvasDensity / 160f;
         }
 
-        // 清屏
-        canvas.drawColor(COLOR_BACKGROUND);
+        // 清屏为全透明，让下层壁纸/Workspace 透出来
+        // TextureView setOpaque(false) 配合 CLEAR 模式实现透明背景
+        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
 
         canvas.save();
 
