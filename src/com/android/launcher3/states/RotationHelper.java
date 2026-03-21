@@ -52,8 +52,16 @@ public class RotationHelper implements LauncherPrefChangeListener,
 
     /**
      * Returns the default value of {@link #ALLOW_ROTATION_PREFERENCE_KEY} preference.
+     *
+     * AutoPilot 车载模式：始终允许旋转，横放手机时自动切换横屏。
+     * 通过系统属性 persist.launcher.robot_page 控制，默认开启。
      */
     public static boolean getAllowRotationDefaultValue(DisplayController.Info info) {
+        // 车载模式：始终允许旋转（手机横放在车上时自动横屏）
+        if (android.os.SystemProperties.getBoolean("persist.launcher.robot_page", true)) {
+            return true;
+        }
+
         if (info.isRotationAllowed()) {
             return true;
         }

@@ -146,6 +146,7 @@ import com.android.launcher3.widget.NavigableAppWidgetHostView;
 import com.android.launcher3.widget.PendingAddShortcutInfo;
 import com.android.launcher3.widget.PendingAddWidgetInfo;
 import com.android.launcher3.widget.util.WidgetSizeHandler;
+import com.android.launcher3.robot.RobotPageView;
 import com.android.systemui.plugins.shared.LauncherOverlayManager.LauncherOverlayCallbacks;
 import com.android.systemui.plugins.shared.LauncherOverlayManager.LauncherOverlayTouchProxy;
 
@@ -190,6 +191,9 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
     private static final int ADJACENT_SCREEN_DROP_DURATION = 300;
 
     public static final int DEFAULT_PAGE = 0;
+
+    /** AutoPilot 机器人动画页引用，作为第 0 页替代 CellLayout（车载模式） */
+    private RobotPageView mRobotPageView;
 
     private final int mAllAppsIconSize;
 
@@ -649,6 +653,29 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
      * Initializes and binds the first page
      */
     public void bindAndInitFirstWorkspaceScreen() {
+        // AutoPilot 车载模式：用机器人动画页替代原有 CellLayout 首页
+        if (isRobotPageEnabled()) {
+            if (mRobotPageView == null) {
+                mRobotPageView = new RobotPageView(getContext(), mLauncher);
+            }
+            // 在 mScreenOrder 和 mWorkspaceScreens 中注册首页占位
+            // mWorkspaceScreens 存 null 因为机器人页不是 CellLayout，
+            // 但 screenId 必须注册以防止重复创建
+            if (!mWorkspaceScreens.containsKey(FIRST_SCREEN_ID)) {
+                mWorkspaceScreens.put(FIRST_SCREEN_ID, null);
+                mScreenOrder.add(0, FIRST_SCREEN_ID);
+            }
+            // 添加到 PagedView（如果尚未添加）
+            if (mRobotPageView.getParent() == null) {
+                addView(mRobotPageView, 0);
+            }
+            // 机器人页不需要 QSB 搜索栏
+            mFirstPagePinnedItem = null;
+            // 默认激活（首页可见）
+            mRobotPageView.setActive(true);
+            return;
+        }
+
         // Add the first page
         CellLayout firstPage = insertNewWorkspaceScreen(Workspace.FIRST_SCREEN_ID, getChildCount());
         if (!qsbOnFirstScreen()) {
@@ -672,6 +699,18 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
             Log.e(TAG, "Failed to add to item at (0, 0) to CellLayout");
             mFirstPagePinnedItem = null;
         }
+    }
+
+    /**
+     * 判断是否启用机器人动画页（车载模式）
+     *
+     * 通过系统属性 persist.launcher.robot_page 控制，默认开启。
+     * 关闭后 Launcher 恢复标准桌面首页。
+     *
+     * @return true 启用机器人页，false 使用标准 CellLayout 首页
+     */
+    private boolean isRobotPageEnabled() {
+        return android.os.SystemProperties.getBoolean("persist.launcher.robot_page", true);
     }
 
     public void removeAllWorkspaceScreens() {
@@ -1281,6 +1320,11 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
     protected void onPageEndTransition() {
         super.onPageEndTransition();
         updateChildrenLayersEnabled();
+
+        // 机器人页生命周期：仅在首页可见时激活传感器和渲染
+        if (mRobotPageView != null) {
+            mRobotPageView.setActive(getCurrentPage() == 0);
+        }
 
         if (mDragController.isDragging()) {
             if (workspaceInModalState()) {
