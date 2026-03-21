@@ -358,34 +358,29 @@ public class CatRenderer {
 
         canvas.save();
 
-        // 平移到猫咪身体中心
-        canvas.translate(state.bodyX, state.bodyY);
+        // 平移到猫咪身体中心，下移补偿去掉下半身后的视觉重心偏移
+        canvas.translate(state.bodyX, state.bodyY + sh * 0.22f);
 
         // 呼吸浮动 + 旋转
         float bobOffset = (float) Math.sin(state.idleTimer * 1.8) * dp(4f);
         canvas.translate(0, bobOffset);
         canvas.rotate(state.rotation);
 
-        // 呼吸缩放
-        float scale = state.bodyScale;
+        // 呼吸缩放 × 上半身放大倍率（1.8x），让头部占满更多屏幕空间
+        float scale = state.bodyScale * 1.8f;
         if (scale > 0.01f) {
             canvas.scale(scale, scale);
         }
 
         float glow = state.glowIntensity;
 
-        // ---- 绘制顺序：后→前 ----
-        drawTail(canvas, state, glow, true);   // 尾巴发光层
-        drawTail(canvas, state, glow, false);  // 尾巴核心层
-        drawBackLegs(canvas, state, glow);
+        // ---- 绘制顺序：后→前（仅上半身，去掉尾巴/后腿/前腿/爪尖） ----
         drawBody(canvas, state, glow);
-        drawFrontLegs(canvas, state, glow);
         drawHead(canvas, state, glow);
         drawEars(canvas, state, glow);
         drawEyes(canvas, state, glow);
         drawNoseMouth(canvas, state, glow);
         drawWhiskers(canvas, state, glow);
-        drawClawTips(canvas, state, glow);
 
         canvas.restore();
     }
@@ -648,20 +643,18 @@ public class CatRenderer {
      */
     private void drawBody(Canvas canvas, RobotState state, float glow) {
         float topHW = dp(BODY_TOP_W) / 2f;
-        float botHW = dp(BODY_BOT_W) / 2f;
         float topY = dp(BODY_TOP_Y);
-        float botY = dp(BODY_BOT_Y);
+        // 上半身：只画到胸部位置（原身体高度的 40%），底部弧形收尾
+        float midY = topY + (dp(BODY_BOT_Y) - topY) * 0.4f;
+        float midHW = topHW + (dp(BODY_BOT_W) / 2f - topHW) * 0.4f;
         float cr = dp(BODY_CORNER_R);
 
-        // 构建梯形 Path（使用圆角近似）
         mBodyPath.reset();
         mBodyPath.moveTo(-topHW + cr, topY);
         mBodyPath.lineTo(topHW - cr, topY);
         mBodyPath.quadTo(topHW, topY, topHW, topY + cr);
-        mBodyPath.lineTo(botHW, botY - cr);
-        mBodyPath.quadTo(botHW, botY, botHW - cr, botY);
-        mBodyPath.lineTo(-botHW + cr, botY);
-        mBodyPath.quadTo(-botHW, botY, -botHW, botY - cr);
+        mBodyPath.lineTo(midHW, midY);
+        mBodyPath.quadTo(0, midY + dp(18f), -midHW, midY);
         mBodyPath.lineTo(-topHW, topY + cr);
         mBodyPath.quadTo(-topHW, topY, -topHW + cr, topY);
         mBodyPath.close();
