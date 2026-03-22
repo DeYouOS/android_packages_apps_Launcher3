@@ -1,5 +1,6 @@
 package com.android.launcher3.robot;
 
+import android.os.SystemProperties;
 import java.util.Random;
 
 /**
@@ -146,6 +147,14 @@ public class CatAnimator {
     /** 开机序列总时长（秒） */
     private static final float BOOT_TOTAL_DURATION = 3.0f;
 
+    // ---- Demo 展示模式 ----
+    /** Demo 模式每个阶段持续时长（秒） */
+    private static final float DEMO_PHASE_DURATION = 3.0f;
+    /** Demo 模式总阶段数 */
+    private static final int DEMO_PHASE_COUNT = 10;
+    /** Demo 模式系统属性名 */
+    private static final String PROP_DEMO_MODE = "persist.launcher.robot_demo";
+
     /** 2π 常量 */
     private static final float TWO_PI = (float) (Math.PI * 2.0);
 
@@ -248,6 +257,16 @@ public class CatAnimator {
     /** 开机序列是否已完成 */
     private boolean mBootComplete;
 
+    // ---- Demo 展示模式 ----
+    /** Demo 模式是否激活（通过 persist.launcher.robot_demo 控制） */
+    private boolean mDemoMode;
+    /** Demo 模式相位计时器（秒） */
+    private float mDemoTimer;
+    /** 当前展示阶段索引（0 ~ DEMO_PHASE_COUNT-1） */
+    private int mDemoPhase;
+    /** Demo 属性上次检查时间（避免每帧读取 SystemProperties） */
+    private float mDemoCheckTimer;
+
     // ---- 全局累计时间（用于持续型动画计算） ----
     private float mGlobalTime;
 
@@ -325,6 +344,12 @@ public class CatAnimator {
         mBootTimer = 0f;
         mBootComplete = false;
 
+        // Demo 展示模式
+        mDemoMode = false;
+        mDemoTimer = 0f;
+        mDemoPhase = 0;
+        mDemoCheckTimer = 0f;
+
         // 全局时间
         mGlobalTime = 0f;
     }
@@ -393,7 +418,13 @@ public class CatAnimator {
         // 15. SURPRISED 震动叠加
         updateSurprisedShake(dt, state);
 
-        // 16. 累加通用计时器
+        // 16. Demo 展示模式（开机完成后生效，覆盖上面子系统的状态值）
+        checkDemoProperty(dt);
+        if (mBootComplete) {
+            updateDemoMode(dt, state);
+        }
+
+        // 17. 累加通用计时器
         state.idleTimer += dt;
         state.blinkTimer += dt;
         state.earTwitchTimer += dt;
@@ -1353,6 +1384,197 @@ public class CatAnimator {
         } else {
             // 开机完成
             mBootComplete = true;
+        }
+    }
+
+    // ==================== 15. Demo 展示模式 ====================
+
+    /**
+     * 检查 Demo 模式系统属性
+     *
+     * 每 2 秒检查一次 persist.launcher.robot_demo 属性，
+     * 避免每帧调用 SystemProperties 造成不必要的 JNI 开销。
+     * 属性值为 "1" 时激活 Demo 模式。
+     *
+     * @param dt 帧间隔（秒）
+     */
+    private void checkDemoProperty(float dt) {
+        mDemoCheckTimer += dt;
+        if (mDemoCheckTimer >= 2.0f) {
+            mDemoCheckTimer = 0f;
+            boolean propEnabled = "1".equals(SystemProperties.get(PROP_DEMO_MODE, "0"));
+            if (propEnabled && !mDemoMode) {
+                // 刚激活，重置 Demo 状态
+                mDemoMode = true;
+                mDemoTimer = 0f;
+                mDemoPhase = 0;
+            } else if (!propEnabled && mDemoMode) {
+                mDemoMode = false;
+            }
+        }
+    }
+
+    /**
+     * 更新 Demo 展示模式
+     *
+     * 当 Demo 模式激活时，每 3 秒切换到下一个展示阶段，
+     * 循环覆盖 RobotState 的各个动画字段来展示所有新功能。
+     * 10 个阶段覆盖：手臂姿态、嘴巴形状、眉毛状态、眼睛特效、
+     * 身体动作、思维气泡、指示灯、AI 情感、天线状态等。
+     *
+     * 在所有子系统 update 之后调用，直接覆盖目标字段值，
+     * 让子系统的过渡平滑逻辑在下一帧自动处理混合。
+     *
+     * @param dt    帧间隔（秒）
+     * @param state 机器人状态
+     */
+    private void updateDemoMode(float dt, RobotState state) {
+        if (!mDemoMode) return;
+
+        mDemoTimer += dt;
+        if (mDemoTimer >= DEMO_PHASE_DURATION) {
+            mDemoTimer -= DEMO_PHASE_DURATION;
+            mDemoPhase = (mDemoPhase + 1) % DEMO_PHASE_COUNT;
+        }
+
+        // 阶段内进度 [0, 1]，用于部分动画的时间控制
+        float phaseProgress = mDemoTimer / DEMO_PHASE_DURATION;
+
+        switch (mDemoPhase) {
+            case 0:
+                // 挥手打招呼 + 微笑 + 眉毛上扬 + 开心情绪
+                state.armPose = RobotState.ArmPose.WAVE;
+                state.mouthShape = RobotState.MouthShape.SMILE;
+                state.eyebrowState = RobotState.EyebrowState.RAISED;
+                state.eyeSpecial = RobotState.EyeSpecial.NONE;
+                state.bodyAction = RobotState.BodyAction.NONE;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.NONE;
+                state.indicatorState = RobotState.IndicatorState.AI_ACTIVE;
+                state.aiEmotion = RobotState.AIEmotion.HAPPY;
+                break;
+
+            case 1:
+                // 双手高举 + 大笑 + 星星眼 + 兴奋弹跳
+                state.armPose = RobotState.ArmPose.BOTH_UP;
+                state.mouthShape = RobotState.MouthShape.WIDE_SMILE;
+                state.eyebrowState = RobotState.EyebrowState.RAISED;
+                state.eyeSpecial = RobotState.EyeSpecial.SPARKLE;
+                state.bodyAction = RobotState.BodyAction.BOUNCE;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.SPARKLE_BURST;
+                state.indicatorState = RobotState.IndicatorState.AI_ACTIVE;
+                state.aiEmotion = RobotState.AIEmotion.EXCITED;
+                break;
+
+            case 2:
+                // 思考托腮 + 嘴巴微张 + 皱眉 + 省略号气泡
+                state.armPose = RobotState.ArmPose.THINKING;
+                state.mouthShape = RobotState.MouthShape.OPEN_O;
+                state.eyebrowState = RobotState.EyebrowState.FURROWED;
+                state.eyeSpecial = RobotState.EyeSpecial.NONE;
+                state.bodyAction = RobotState.BodyAction.NONE;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.DOTS;
+                state.indicatorState = RobotState.IndicatorState.BREATHING;
+                state.aiEmotion = RobotState.AIEmotion.CURIOUS;
+                break;
+
+            case 3:
+                // 左指导航 + 扁嘴 + 单眉上扬 + 问号气泡
+                state.armPose = RobotState.ArmPose.POINT_LEFT;
+                state.mouthShape = RobotState.MouthShape.FLAT;
+                state.eyebrowState = RobotState.EyebrowState.ONE_UP;
+                state.eyeSpecial = RobotState.EyeSpecial.NONE;
+                state.bodyAction = RobotState.BodyAction.TILT;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.QUESTION;
+                state.indicatorState = RobotState.IndicatorState.NORMAL;
+                state.aiEmotion = RobotState.AIEmotion.CONFUSED;
+                break;
+
+            case 4:
+                // 鼓掌 + 波浪嘴 + 爱心眼 + 音符气泡
+                state.armPose = RobotState.ArmPose.CLAP;
+                state.mouthShape = RobotState.MouthShape.WAVY;
+                state.eyebrowState = RobotState.EyebrowState.NEUTRAL;
+                state.eyeSpecial = RobotState.EyeSpecial.HEART;
+                state.bodyAction = RobotState.BodyAction.BOUNCE;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.MUSIC_NOTE;
+                state.indicatorState = RobotState.IndicatorState.AI_ACTIVE;
+                state.aiEmotion = RobotState.AIEmotion.HAPPY;
+                break;
+
+            case 5:
+                // 擦汗 + 张嘴惊讶 + 悲伤眉 + 汗滴气泡 + 害羞情绪（触发腮红）
+                state.armPose = RobotState.ArmPose.WIPE_SWEAT;
+                state.mouthShape = RobotState.MouthShape.OPEN_D;
+                state.eyebrowState = RobotState.EyebrowState.SAD;
+                state.eyeSpecial = RobotState.EyeSpecial.NONE;
+                state.bodyAction = RobotState.BodyAction.NONE;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.SWEAT;
+                state.indicatorState = RobotState.IndicatorState.WARNING;
+                state.aiEmotion = RobotState.AIEmotion.SHY;
+                break;
+
+            case 6:
+                // 抓握 + 点头 + 感叹号气泡 + 骄傲情绪
+                state.armPose = RobotState.ArmPose.GRAB_HOLD;
+                state.mouthShape = RobotState.MouthShape.SMILE;
+                state.eyebrowState = RobotState.EyebrowState.RAISED;
+                state.eyeSpecial = RobotState.EyeSpecial.SPARKLE;
+                state.bodyAction = RobotState.BodyAction.NOD;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.EXCLAMATION;
+                state.indicatorState = RobotState.IndicatorState.AI_ACTIVE;
+                state.aiEmotion = RobotState.AIEmotion.PROUD;
+                break;
+
+            case 7:
+                // 右指 + 摇头 + 晕眩眼 + 愤怒眉 + 怒气气泡
+                state.armPose = RobotState.ArmPose.POINT_RIGHT;
+                state.mouthShape = RobotState.MouthShape.FLAT;
+                state.eyebrowState = RobotState.EyebrowState.ANGRY;
+                state.eyeSpecial = RobotState.EyeSpecial.DIZZY;
+                state.bodyAction = RobotState.BodyAction.SHAKE_HEAD;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.ANGRY_MARK;
+                state.indicatorState = RobotState.IndicatorState.ERROR;
+                state.aiEmotion = RobotState.AIEmotion.WORRIED;
+                break;
+
+            case 8:
+                // 颤抖 + 波浪嘴 + 爱心气泡 + 害羞情绪（腮红）
+                state.armPose = RobotState.ArmPose.IDLE_SIDE;
+                state.mouthShape = RobotState.MouthShape.WAVY;
+                state.eyebrowState = RobotState.EyebrowState.SAD;
+                state.eyeSpecial = RobotState.EyeSpecial.HEART;
+                state.bodyAction = RobotState.BodyAction.SHIVER;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.HEART_BUBBLE;
+                state.indicatorState = RobotState.IndicatorState.BREATHING;
+                state.aiEmotion = RobotState.AIEmotion.SHY;
+                break;
+
+            case 9:
+                // 伸懒腰 + 瞌睡眼 + ZZZ 气泡 + 困倦情绪
+                state.armPose = RobotState.ArmPose.BOTH_UP;
+                state.mouthShape = RobotState.MouthShape.OPEN_O;
+                state.eyebrowState = RobotState.EyebrowState.NEUTRAL;
+                state.eyeSpecial = RobotState.EyeSpecial.SLEEPY;
+                state.sleepiness = 0.7f;
+                state.bodyAction = RobotState.BodyAction.YAWN;
+                state.thoughtBubbleType = RobotState.ThoughtBubbleType.ZZZ;
+                state.indicatorState = RobotState.IndicatorState.NORMAL;
+                state.aiEmotion = RobotState.AIEmotion.SLEEPY_REPLY;
+                break;
+
+            default:
+                break;
+        }
+
+        // 确保天线在 Demo 模式下始终发光
+        state.antennaFlashing = (mDemoPhase % 2 == 0);
+
+        // 设置胸部模式：阶段 6 展示充电动画，其它为常规
+        if (mDemoPhase == 6) {
+            state.chestMode = RobotState.ChestMode.CHARGING;
+            state.chestTaskProgress = phaseProgress;
+        } else {
+            state.chestMode = RobotState.ChestMode.NORMAL;
         }
     }
 
