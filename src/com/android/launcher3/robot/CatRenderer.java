@@ -151,8 +151,8 @@ public class CatRenderer {
     private static final float BODY_TOP_W = 145f;
     /** 身体最大宽度（dp，中部肩膀处） */
     private static final float BODY_MID_W = 157f;
-    /** 身体高度（dp） */
-    private static final float BODY_H = 145f;
+    /** 身体高度（dp）— 加长躯干，填充下方空间，增强机甲修长感 */
+    private static final float BODY_H = 200f;
     /** 身体顶部 Y 偏移（相对于原点，脖子下方） */
     private static final float BODY_TOP_Y = -70f;
     /** 身体圆角（dp） */
@@ -2478,9 +2478,9 @@ public class CatRenderer {
         float bubbleCX = headCX + headHW * 0.75f;
         float bubbleCY = headCY - headHH * 1.05f;
 
-        // 主气泡尺寸
-        float bubbleW = dp(40f);
-        float bubbleH = dp(30f);
+        // 主气泡尺寸（加大让气泡更醒目）
+        float bubbleW = dp(55f);
+        float bubbleH = dp(42f);
 
         // 绘制尾随小圆（从头部到气泡的过渡，位置调整让弧线自然）
         mDetailPaint.setStyle(Paint.Style.FILL);
@@ -2489,11 +2489,11 @@ public class CatRenderer {
         // 小圆 1（靠近头顶）
         float trail1X = headCX + headHW * 0.45f;
         float trail1Y = headCY - headHH * 0.55f;
-        canvas.drawCircle(trail1X, trail1Y, dp(3f), mDetailPaint);
+        canvas.drawCircle(trail1X, trail1Y, dp(4f), mDetailPaint);
         // 小圆 2（中间过渡）
         float trail2X = headCX + headHW * 0.6f;
         float trail2Y = headCY - headHH * 0.8f;
-        canvas.drawCircle(trail2X, trail2Y, dp(5f), mDetailPaint);
+        canvas.drawCircle(trail2X, trail2Y, dp(6.5f), mDetailPaint);
 
         // 主气泡椭圆
         mDetailPaint.setColor(setAlpha(COLOR_CORE, alphaInt));
