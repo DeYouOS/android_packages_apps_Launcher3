@@ -469,10 +469,15 @@ public class CatRenderer {
 
         float glow = state.glowIntensity;
 
+        // 判断右臂是否需要在脸前绘制（托腮/抹额时手在头前面）
+        boolean rightArmOverFace =
+                state.armPose == RobotState.ArmPose.THINKING
+             || state.armPose == RobotState.ArmPose.WIPE_SWEAT;
+
         // 8~22. 按后→前顺序绘制各部件
         drawLegsAndFeet(canvas, state, glow);           // 8
         drawBody(canvas, state, glow);                   // 9
-        drawArms(canvas, state, glow);                   // 10
+        drawArms(canvas, state, glow, rightArmOverFace); // 10（rightArmOverFace时跳过右臂）
         drawNeck(canvas, state, glow);                   // 11
         drawHead(canvas, state, glow);                   // 12
         drawAntenna(canvas, state, glow);                // 13
@@ -485,6 +490,11 @@ public class CatRenderer {
         drawIndicatorLights(canvas, state, glow);        // 20
         drawThoughtBubble(canvas, state, glow);          // 21
         drawCheekBlush(canvas, state, glow);             // 22
+
+        // 22b. 延迟绘制的右臂（在脸部所有部件之上，托腮/抹额时手可见）
+        if (rightArmOverFace) {
+            drawDeferredRightArm(canvas, state, glow);
+        }
 
         // 23. 恢复画布状态
         canvas.restore();
@@ -1063,15 +1073,17 @@ public class CatRenderer {
      * - POINT_LEFT: 左臂斜下 135° + 前臂向左 190°，右臂下垂
      * - POINT_RIGHT: 右臂斜下 45° + 前臂向右 -10°，左臂下垂
      * - GRAB_HOLD: 双臂前弯约 70°
-     * - THINKING: 右手托腮 -30°/-150°，左臂交叉
+     * - THINKING: 右手托腮 -60°/-160°，左臂下垂（右臂延迟到脸前绘制）
      * - CLAP: 双臂前方振荡对拍（6Hz 正弦）
-     * - WIPE_SWEAT: 右手抹额 -25°/-155°，左臂下垂
+     * - WIPE_SWEAT: 右手抹额 -70°/-150°，左臂下垂（右臂延迟到脸前绘制）
      *
-     * @param canvas 画布
-     * @param state  机器人状态
-     * @param glow   发光强度
+     * @param canvas        画布
+     * @param state         机器人状态
+     * @param glow          发光强度
+     * @param skipRightArm  true 时跳过右臂（留给 drawDeferredRightArm 在脸部之后绘制）
      */
-    private void drawArms(Canvas canvas, RobotState state, float glow) {
+    private void drawArms(Canvas canvas, RobotState state, float glow,
+                          boolean skipRightArm) {
         float shoulderY = dp(BODY_TOP_Y) + dp(SHOULDER_Y_OFFSET);
         float bodyMidHW = dp(BODY_MID_W) / 2f;
 
@@ -1120,11 +1132,11 @@ public class CatRenderer {
                 rightForearmDeg = -60f;
                 break;
             case THINKING:
-                // 右手托腮（上臂前抬 -30°，前臂折叠 -150°），左臂自然下垂
+                // 右手托腮：上臂向左上-120°（从右肩跨过身体到脸前），前臂向右下30°折回（手掌托下巴）
                 leftUpperDeg = 88f;
                 leftForearmDeg = 75f;
-                rightUpperDeg = -30f;
-                rightForearmDeg = -150f;
+                rightUpperDeg = -120f;
+                rightForearmDeg = 30f;
                 break;
             case CLAP:
                 // 双臂在身前振荡对拍
@@ -1134,11 +1146,11 @@ public class CatRenderer {
                 rightForearmDeg = -120f;
                 break;
             case WIPE_SWEAT:
-                // 右手抹额（上臂前抬 -25°，前臂高折 -155°），左臂自然下垂
+                // 右手抹额：上臂向左上-130°（从右肩跨过到额前），前臂水平向右0°（手掌擦额头）
                 leftUpperDeg = 88f;
                 leftForearmDeg = 75f;
-                rightUpperDeg = -25f;
-                rightForearmDeg = -155f;
+                rightUpperDeg = -130f;
+                rightForearmDeg = 0f;
                 break;
             case IDLE_SIDE:
             default:
@@ -1158,7 +1170,37 @@ public class CatRenderer {
         drawSingleArm(canvas, -bodyMidHW, shoulderY,
                 leftUpperDeg, leftForearmDeg, false, state, glow);
 
-        // 绘制右臂
+        // 绘制右臂（skipRightArm 时跳过，由 drawDeferredRightArm 在脸部之后补画）
+        if (!skipRightArm) {
+            drawSingleArm(canvas, bodyMidHW, shoulderY,
+                    rightUpperDeg, rightForearmDeg, true, state, glow);
+        }
+    }
+
+    /**
+     * 延迟绘制右臂（THINKING/WIPE_SWEAT 时调用，确保手在脸前面）
+     *
+     * 复用 drawArms 的角度计算逻辑，仅绘制右臂。
+     * 在脸部所有部件（头/眼/嘴/眉）之后调用，z-order 在最前。
+     */
+    private void drawDeferredRightArm(Canvas canvas, RobotState state, float glow) {
+        float shoulderY = dp(BODY_TOP_Y) + dp(SHOULDER_Y_OFFSET);
+        float bodyMidHW = dp(BODY_MID_W) / 2f;
+
+        float rightUpperDeg, rightForearmDeg;
+        switch (state.armPose) {
+            case THINKING:
+                rightUpperDeg = -120f;
+                rightForearmDeg = 30f;
+                break;
+            case WIPE_SWEAT:
+                rightUpperDeg = -130f;
+                rightForearmDeg = 0f;
+                break;
+            default:
+                return;
+        }
+        rightUpperDeg += state.rightArmAngleOffset;
         drawSingleArm(canvas, bodyMidHW, shoulderY,
                 rightUpperDeg, rightForearmDeg, true, state, glow);
     }
