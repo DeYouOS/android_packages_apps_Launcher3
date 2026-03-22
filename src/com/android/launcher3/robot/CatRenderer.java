@@ -192,13 +192,15 @@ public class CatRenderer {
 
     // ---- 脚/靴子 ----
     /** 靴子宽度（dp） */
-    private static final float BOOT_W = 46f;
-    /** 靴子高度（dp） */
-    private static final float BOOT_H = 34f;
-    /** 靴子圆角（dp） */
-    private static final float BOOT_R = 12f;
+    private static final float BOOT_W = 48f;
+    /** 靴子高度（dp）— 稍高使靴子更有存在感 */
+    private static final float BOOT_H = 38f;
+    /** 靴子圆角（dp）— 增大圆角让靴子更圆润可爱 */
+    private static final float BOOT_R = 18f;
     /** 靴子侧面圆形点缀半径（dp） */
     private static final float BOOT_CIRCLE_R = 6f;
+    /** 靴子前端偏移（dp）— 让鞋头朝前，更像真实鞋子 */
+    private static final float BOOT_TOE_OFFSET = 4f;
 
     // ---- 天线参数 ----
     /** 天线杆高度（dp） */
@@ -793,11 +795,14 @@ public class CatRenderer {
         canvas.drawCircle(cx, kneeY, dp(2f), mDetailPaint);
         mDetailPaint.clearShadowLayer();
 
-        // 靴子
+        // 靴子：前端偏移使鞋头朝前，更像真实鞋子
         float bootY = topY + legLen;
         float bootW = dp(BOOT_W);
         float bootH = dp(BOOT_H);
-        mTempRect.set(cx - bootW / 2f, bootY, cx + bootW / 2f, bootY + bootH);
+        float toeOff = dp(BOOT_TOE_OFFSET);
+        // 靴子整体向前偏移（正方向 = 屏幕右侧 ≈ 鞋头朝前）
+        float bootCX = cx + toeOff;
+        mTempRect.set(bootCX - bootW / 2f, bootY, bootCX + bootW / 2f, bootY + bootH);
 
         // 靴子白色填充
         mFillPaint.setColor(COLOR_BODY_WHITE);
@@ -807,23 +812,37 @@ public class CatRenderer {
         mStrokePaint.setStrokeWidth(dp(STROKE_W));
         canvas.drawRoundRect(mTempRect, dp(BOOT_R), dp(BOOT_R), mStrokePaint);
 
-        // 靴底线
-        float soleY = bootY + bootH - dp(3f);
+        // 靴底弧线（略微弯曲的椭圆弧，比直线更有立体感）
+        float soleY = bootY + bootH - dp(4f);
+        float soleLeft = bootCX - bootW * 0.38f;
+        float soleRight = bootCX + bootW * 0.38f;
+        mTempRect3.set(soleLeft, soleY - dp(3f), soleRight, soleY + dp(3f));
         mDetailPaint.setStyle(Paint.Style.STROKE);
         mDetailPaint.setStrokeWidth(dp(1.5f));
         mDetailPaint.setColor(COLOR_OUTLINE);
         mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
         mDetailPaint.clearShadowLayer();
-        canvas.drawLine(cx - bootW * 0.35f, soleY, cx + bootW * 0.35f, soleY, mDetailPaint);
+        canvas.drawArc(mTempRect3, 0f, 180f, false, mDetailPaint);
 
         // 靴口横线
-        float trimY = bootY + bootH * 0.3f;
+        float trimY = bootY + bootH * 0.25f;
         mDetailPaint.setStrokeWidth(dp(1f));
         mDetailPaint.setColor(0xFF505050);
-        canvas.drawLine(cx - bootW * 0.35f, trimY, cx + bootW * 0.35f, trimY, mDetailPaint);
+        canvas.drawLine(bootCX - bootW * 0.35f, trimY, bootCX + bootW * 0.35f, trimY, mDetailPaint);
+
+        // 鞋头高光弧：靴子前端的半透明白色弧线，增加圆润质感
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(2f));
+        mDetailPaint.setColor(0x55FFFFFF);
+        float hlLeft = bootCX + bootW * 0.05f;
+        float hlRight = bootCX + bootW * 0.42f;
+        float hlTop = bootY + bootH * 0.45f;
+        float hlBot = bootY + bootH * 0.75f;
+        mTempRect3.set(hlLeft, hlTop, hlRight, hlBot);
+        canvas.drawArc(mTempRect3, 200f, 140f, false, mDetailPaint);
 
         // 靴子侧面青色圆形装饰（主圆）
-        float circleX = cx + bootW * 0.2f;
+        float circleX = bootCX + bootW * 0.2f;
         float circleY = bootY + bootH * 0.55f;
         mAccentPaint.setStyle(Paint.Style.STROKE);
         mAccentPaint.setStrokeWidth(dp(EAR_ACCENT_LINE_W));
@@ -831,8 +850,8 @@ public class CatRenderer {
         mAccentPaint.clearShadowLayer();
         canvas.drawCircle(circleX, circleY, dp(BOOT_CIRCLE_R), mAccentPaint);
 
-        // 第二个靴子圆形装饰：更小，位于主圆上方
-        float circle2Y = bootY + bootH * 0.3f;
+        // 第二个靴子装饰圆：更小，位于主圆上方
+        float circle2Y = bootY + bootH * 0.28f;
         canvas.drawCircle(circleX, circle2Y, dp(BOOT_CIRCLE_R * 0.6f), mAccentPaint);
     }
 
@@ -1065,9 +1084,9 @@ public class CatRenderer {
 
         switch (state.armPose) {
             case WAVE:
-                // 右臂挥手：上臂 -45° + 振荡，前臂 -110° + 振荡
-                leftUpperDeg = -105f;
-                leftForearmDeg = -80f;
+                // 右臂挥手：上臂斜上 -45° + 振荡，前臂 -110° + 振荡；左臂自然下垂
+                leftUpperDeg = 88f;
+                leftForearmDeg = 75f;
                 rightUpperDeg = -45f + waveOsc;
                 rightForearmDeg = -110f + waveOsc * 0.5f;
                 break;
@@ -1080,30 +1099,30 @@ public class CatRenderer {
                 rightForearmDeg = -120f;
                 break;
             case POINT_LEFT:
-                // 左臂水平伸出（180° = 向左），右臂下垂
+                // 左臂水平伸出（180° = 向左），右臂自然下垂
                 leftUpperDeg = 180f;
                 leftForearmDeg = 0f;
-                rightUpperDeg = -105f;
-                rightForearmDeg = -80f;
+                rightUpperDeg = 88f;
+                rightForearmDeg = 75f;
                 break;
             case POINT_RIGHT:
-                // 右臂水平伸出（0° = 向右），左臂下垂
-                leftUpperDeg = -105f;
-                leftForearmDeg = -80f;
+                // 右臂水平伸出（0° = 向右），左臂自然下垂
+                leftUpperDeg = 88f;
+                leftForearmDeg = 75f;
                 rightUpperDeg = 0f;
                 rightForearmDeg = 0f;
                 break;
             case GRAB_HOLD:
-                // 双臂前弯：上臂 -70°，前臂 -140°
-                leftUpperDeg = -70f;
-                leftForearmDeg = -140f;
-                rightUpperDeg = -70f;
-                rightForearmDeg = -140f;
+                // 双臂前弯在胸前：上臂前伸 30°，前臂向内弯 -60°
+                leftUpperDeg = 30f;
+                leftForearmDeg = -60f;
+                rightUpperDeg = 30f;
+                rightForearmDeg = -60f;
                 break;
             case THINKING:
-                // 右手托腮，左臂交叉
-                leftUpperDeg = -85f;
-                leftForearmDeg = -130f;
+                // 右手托腮（上臂前抬 -30°，前臂折叠 -150°），左臂自然下垂
+                leftUpperDeg = 88f;
+                leftForearmDeg = 75f;
                 rightUpperDeg = -30f;
                 rightForearmDeg = -150f;
                 break;
@@ -1115,19 +1134,19 @@ public class CatRenderer {
                 rightForearmDeg = -120f;
                 break;
             case WIPE_SWEAT:
-                // 右手抹额，左臂下垂
-                leftUpperDeg = -105f;
-                leftForearmDeg = -80f;
+                // 右手抹额（上臂前抬 -25°，前臂高折 -155°），左臂自然下垂
+                leftUpperDeg = 88f;
+                leftForearmDeg = 75f;
                 rightUpperDeg = -25f;
                 rightForearmDeg = -155f;
                 break;
             case IDLE_SIDE:
             default:
-                // 双臂自然下垂
-                leftUpperDeg = -105f;
-                leftForearmDeg = -80f;
-                rightUpperDeg = -105f;
-                rightForearmDeg = -80f;
+                // 双臂自然下垂：上臂向下 88°（略微外撇），前臂微弯 75°
+                leftUpperDeg = 88f;
+                leftForearmDeg = 75f;
+                rightUpperDeg = 88f;
+                rightForearmDeg = 75f;
                 break;
         }
 
@@ -1988,8 +2007,8 @@ public class CatRenderer {
     private void drawMouth(Canvas canvas, RobotState state, float glow) {
         float panelCY = dp(HEAD_CY) + dp(PANEL_OFFSET_Y);
         float panelHalfH = dp(PANEL_H) / 2f;
-        // 嘴巴 Y 位置：面板下方 70%
-        float mouthY = panelCY + panelHalfH * 0.7f;
+        // 嘴巴 Y 位置：面板底部再往下 18dp，拉开眼睛和嘴巴间距
+        float mouthY = panelCY + panelHalfH + dp(18f);
         float mouthCX = 0f;
 
         // 实际张开度：mouthOpenness 和 ttsAmplitude 取较大值
