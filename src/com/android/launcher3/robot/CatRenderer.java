@@ -907,18 +907,60 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawPath(mBodyPath, mStrokePaint);
 
-        // 身体面板接缝线：两条水平半透明白线
+        // 装甲板分割线：加深的主线 + 两侧高光模拟金属板边缘凸起
         float seam1Y = topY + h * 0.30f;
         float seam2Y = topY + h * 0.60f;
         float seam1HW = topHW + (midHW - topHW) * (0.30f / 0.35f);
         float seam2HW = midHW * 0.7f;
+        // 主分割线（加深）
         mDetailPaint.setStyle(Paint.Style.STROKE);
-        mDetailPaint.setStrokeWidth(dp(0.8f));
-        mDetailPaint.setColor(0x66FFFFFF);
+        mDetailPaint.setStrokeWidth(dp(1f));
+        mDetailPaint.setColor(0x44000000);
         mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
         mDetailPaint.clearShadowLayer();
         canvas.drawLine(-seam1HW * 0.8f, seam1Y, seam1HW * 0.8f, seam1Y, mDetailPaint);
         canvas.drawLine(-seam2HW * 0.8f, seam2Y, seam2HW * 0.8f, seam2Y, mDetailPaint);
+        // 分割线上方 1px 白色高光（模拟金属板凸起亮边）
+        mDetailPaint.setStrokeWidth(dp(0.5f));
+        mDetailPaint.setColor(0x22FFFFFF);
+        canvas.drawLine(-seam1HW * 0.8f, seam1Y - dp(1f),
+                seam1HW * 0.8f, seam1Y - dp(1f), mDetailPaint);
+        canvas.drawLine(-seam2HW * 0.8f, seam2Y - dp(1f),
+                seam2HW * 0.8f, seam2Y - dp(1f), mDetailPaint);
+        // 分割线下方 1px 白色高光
+        canvas.drawLine(-seam1HW * 0.8f, seam1Y + dp(1f),
+                seam1HW * 0.8f, seam1Y + dp(1f), mDetailPaint);
+        canvas.drawLine(-seam2HW * 0.8f, seam2Y + dp(1f),
+                seam2HW * 0.8f, seam2Y + dp(1f), mDetailPaint);
+
+        // 身体两侧通风口格栅：各 3 条短水平线（宽 8dp，间距 3dp）
+        float ventW = dp(8f);
+        float ventGap = dp(3f);
+        float ventStartY = seam1Y + (seam2Y - seam1Y) * 0.3f;
+        mDetailPaint.setStrokeWidth(dp(0.8f));
+        mDetailPaint.setColor(0x33000000);
+        for (int i = 0; i < 3; i++) {
+            float vy = ventStartY + i * ventGap;
+            // 左侧通风口
+            canvas.drawLine(-midHW + dp(4f), vy, -midHW + dp(4f) + ventW, vy, mDetailPaint);
+            // 右侧通风口
+            canvas.drawLine(midHW - dp(4f) - ventW, vy, midHW - dp(4f), vy, mDetailPaint);
+        }
+
+        // 第一条分割线上方左右各一个铆钉
+        float rivetY = seam1Y - dp(6f);
+        float rivetX = seam1HW * 0.5f;
+        float rivetR = dp(2f);
+        // 铆钉底色（深灰圆点）
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(COLOR_JOINT);
+        canvas.drawCircle(-rivetX, rivetY, rivetR, mDetailPaint);
+        canvas.drawCircle(rivetX, rivetY, rivetR, mDetailPaint);
+        // 铆钉白色高光点
+        mDetailPaint.setColor(0xAAFFFFFF);
+        float highlightR = dp(0.8f);
+        canvas.drawCircle(-rivetX - dp(0.3f), rivetY - dp(0.3f), highlightR, mDetailPaint);
+        canvas.drawCircle(rivetX - dp(0.3f), rivetY - dp(0.3f), highlightR, mDetailPaint);
 
         // 肩甲
         drawShoulderPad(canvas, -midHW, topY, midY, true);
@@ -997,21 +1039,32 @@ public class CatRenderer {
 
             case NORMAL:
             default:
-                // 正常模式：青色圆环徽章（原版）
+                // WiFi 信号图标：3 层同心弧线（扇形朝上）+ 底部中心圆点
                 mAccentPaint.setStyle(Paint.Style.STROKE);
                 mAccentPaint.setStrokeWidth(dp(2f));
                 mAccentPaint.setColor(COLOR_EYE_CYAN);
                 mAccentPaint.setShadowLayer(dp(8f) * glow, 0, 0, COLOR_EYE_CYAN);
-                canvas.drawCircle(0, emblemCY, emblemR, mAccentPaint);
+                mAccentPaint.setStrokeCap(Paint.Cap.ROUND);
+                // 外弧（最大半径 = emblemR）
+                float wifiArcR1 = emblemR;
+                mTempRect2.set(-wifiArcR1, emblemCY - wifiArcR1,
+                        wifiArcR1, emblemCY + wifiArcR1);
+                canvas.drawArc(mTempRect2, -150f, 120f, false, mAccentPaint);
+                // 中弧（半径 = emblemR * 0.65）
+                float wifiArcR2 = emblemR * 0.65f;
+                mTempRect2.set(-wifiArcR2, emblemCY - wifiArcR2,
+                        wifiArcR2, emblemCY + wifiArcR2);
+                canvas.drawArc(mTempRect2, -150f, 120f, false, mAccentPaint);
+                // 内弧（半径 = emblemR * 0.3）
+                float wifiArcR3 = emblemR * 0.3f;
+                mTempRect2.set(-wifiArcR3, emblemCY - wifiArcR3,
+                        wifiArcR3, emblemCY + wifiArcR3);
+                canvas.drawArc(mTempRect2, -150f, 120f, false, mAccentPaint);
                 mAccentPaint.clearShadowLayer();
-                // 内圈半透明青色填充
-                mDetailPaint.setStyle(Paint.Style.FILL);
-                mDetailPaint.setColor(0x4400D4FF);
-                mDetailPaint.clearShadowLayer();
-                canvas.drawCircle(0, emblemCY, emblemR * 0.55f, mDetailPaint);
-                // 中心白色小点
-                mDetailPaint.setColor(0xAAFFFFFF);
-                canvas.drawCircle(0, emblemCY, dp(2.5f), mDetailPaint);
+                // 底部中心圆点（实心青色）
+                mAccentPaint.setStyle(Paint.Style.FILL);
+                mAccentPaint.setColor(COLOR_EYE_CYAN);
+                canvas.drawCircle(0, emblemCY, dp(2f), mAccentPaint);
                 break;
         }
     }
@@ -1537,9 +1590,10 @@ public class CatRenderer {
     // ==================== 侧耳（耳机垫块） ====================
 
     /**
-     * 绘制头部两侧的矩形耳块（类似耳机垫）
+     * 绘制头部两侧的信号接收器耳块（分层装甲式设计）
      *
-     * 深灰色圆角矩形，附着在头部左右两侧，带一条细的青色点缀线。
+     * 外层为上窄下宽的梯形深灰色轮廓，内部有 3 条水平格栅线模拟扬声器/散热片，
+     * 中间偏上有一个青色圆形指示灯（带发光），底部有 2 个铆钉装饰点。
      * 受 state.leftEarAngle/rightEarAngle 影响产生轻微倾斜。
      *
      * @param canvas 画布
@@ -1551,51 +1605,111 @@ public class CatRenderer {
         float headCY = dp(HEAD_CY);
         float blockW = dp(EAR_BLOCK_W);
         float blockH = dp(EAR_BLOCK_H);
-        float blockR = dp(EAR_BLOCK_R);
         float offsetX = dp(EAR_BLOCK_OFFSET_X);
 
-        // 左耳块
-        canvas.save();
+        // 左耳块（信号接收器）
         float leftBlockCX = -headHW - offsetX - blockW / 2f;
-        canvas.rotate(state.leftEarAngle * 0.3f, leftBlockCX, headCY);
-        mTempRect.set(leftBlockCX - blockW / 2f, headCY - blockH / 2f,
-                leftBlockCX + blockW / 2f, headCY + blockH / 2f);
+        drawSingleEarReceiver(canvas, leftBlockCX, headCY, blockW, blockH,
+                state.leftEarAngle, glow, true);
 
+        // 右耳块（镜像）
+        float rightBlockCX = headHW + offsetX + blockW / 2f;
+        drawSingleEarReceiver(canvas, rightBlockCX, headCY, blockW, blockH,
+                state.rightEarAngle, glow, false);
+    }
+
+    /**
+     * 绘制单个信号接收器耳块
+     *
+     * 梯形轮廓（上窄下宽）+ 水平格栅 + 青色指示灯 + 底部铆钉。
+     *
+     * @param canvas  画布
+     * @param cx      耳块中心 X（px）
+     * @param cy      耳块中心 Y（px）
+     * @param w       耳块宽度（px）
+     * @param h       耳块高度（px）
+     * @param angle   耳朵旋转角度
+     * @param glow    发光强度
+     * @param isLeft  是否为左耳
+     */
+    private void drawSingleEarReceiver(Canvas canvas, float cx, float cy,
+                                        float w, float h, float angle,
+                                        float glow, boolean isLeft) {
+        canvas.save();
+        float rotateMul = isLeft ? 1f : -1f;
+        canvas.rotate(angle * 0.3f * rotateMul, cx, cy);
+
+        // 梯形参数：上边窄、下边宽
+        float topHW = w * 0.35f;   // 上边半宽
+        float botHW = w * 0.50f;   // 下边半宽
+        float halfH = h / 2f;
+        float cornerR = dp(5f);    // 圆角半径
+
+        // 构建梯形 Path（上窄下宽）
+        mTempPath.reset();
+        mTempPath.moveTo(cx - topHW + cornerR, cy - halfH);
+        mTempPath.lineTo(cx + topHW - cornerR, cy - halfH);
+        mTempPath.quadTo(cx + topHW, cy - halfH, cx + topHW, cy - halfH + cornerR);
+        mTempPath.lineTo(cx + botHW, cy + halfH - cornerR);
+        mTempPath.quadTo(cx + botHW, cy + halfH, cx + botHW - cornerR, cy + halfH);
+        mTempPath.lineTo(cx - botHW + cornerR, cy + halfH);
+        mTempPath.quadTo(cx - botHW, cy + halfH, cx - botHW, cy + halfH - cornerR);
+        mTempPath.lineTo(cx - topHW, cy - halfH + cornerR);
+        mTempPath.quadTo(cx - topHW, cy - halfH, cx - topHW + cornerR, cy - halfH);
+        mTempPath.close();
+
+        // 外层：深灰色梯形填充
         mDarkFillPaint.setStyle(Paint.Style.FILL);
         mDarkFillPaint.setColor(COLOR_JOINT);
         mDarkFillPaint.clearShadowLayer();
-        canvas.drawRoundRect(mTempRect, blockR, blockR, mDarkFillPaint);
+        canvas.drawPath(mTempPath, mDarkFillPaint);
 
+        // 梯形描边
         mStrokePaint.setStyle(Paint.Style.STROKE);
         mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
         mStrokePaint.setColor(COLOR_OUTLINE);
         mStrokePaint.clearShadowLayer();
-        canvas.drawRoundRect(mTempRect, blockR, blockR, mStrokePaint);
+        canvas.drawPath(mTempPath, mStrokePaint);
 
-        // 青色点缀线
-        mAccentPaint.setStyle(Paint.Style.STROKE);
-        mAccentPaint.setStrokeWidth(dp(EAR_ACCENT_LINE_W));
+        // 中层：3 条水平格栅线（模拟扬声器/散热片）
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(1f));
+        mDetailPaint.setColor(COLOR_OUTLINE);
+        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        mDetailPaint.clearShadowLayer();
+        // 格栅分布在耳块上半部分（指示灯下方留空）
+        float grillStartY = cy - halfH * 0.55f;
+        float grillEndY = cy + halfH * 0.15f;
+        float grillSpacing = (grillEndY - grillStartY) / 3f;
+        for (int i = 0; i < 3; i++) {
+            float lineY = grillStartY + grillSpacing * (i + 0.5f);
+            // 根据 Y 位置线性插值计算当前行的半宽（梯形内）
+            float t = (lineY - (cy - halfH)) / h;
+            float currentHW = topHW + (botHW - topHW) * t;
+            float inset = dp(3f);
+            canvas.drawLine(cx - currentHW + inset, lineY,
+                    cx + currentHW - inset, lineY, mDetailPaint);
+        }
+
+        // 内层：青色圆形指示灯（中间偏上，带发光）
+        float ledY = cy + halfH * 0.35f;
+        float ledR = dp(3f);
+        mAccentPaint.setStyle(Paint.Style.FILL);
         mAccentPaint.setColor(COLOR_EYE_CYAN);
-        mAccentPaint.setStrokeCap(Paint.Cap.ROUND);
+        mAccentPaint.setShadowLayer(dp(6f) * glow, 0, 0, COLOR_EYE_CYAN);
+        canvas.drawCircle(cx, ledY, ledR, mAccentPaint);
         mAccentPaint.clearShadowLayer();
-        float lineX = leftBlockCX;
-        canvas.drawLine(lineX, headCY - blockH * 0.3f, lineX, headCY + blockH * 0.3f,
-                mAccentPaint);
-        canvas.restore();
 
-        // 右耳块（镜像）
-        canvas.save();
-        float rightBlockCX = headHW + offsetX + blockW / 2f;
-        canvas.rotate(-state.rightEarAngle * 0.3f, rightBlockCX, headCY);
-        mTempRect.set(rightBlockCX - blockW / 2f, headCY - blockH / 2f,
-                rightBlockCX + blockW / 2f, headCY + blockH / 2f);
+        // 底部 2 个铆钉点（深灰色小圆）
+        float rivetY = cy + halfH * 0.72f;
+        float rivetSpacing = dp(5f);
+        float rivetR = dp(1.5f);
+        mDarkFillPaint.setStyle(Paint.Style.FILL);
+        mDarkFillPaint.setColor(0xFF3A3A3E);
+        mDarkFillPaint.clearShadowLayer();
+        canvas.drawCircle(cx - rivetSpacing, rivetY, rivetR, mDarkFillPaint);
+        canvas.drawCircle(cx + rivetSpacing, rivetY, rivetR, mDarkFillPaint);
 
-        canvas.drawRoundRect(mTempRect, blockR, blockR, mDarkFillPaint);
-        canvas.drawRoundRect(mTempRect, blockR, blockR, mStrokePaint);
-
-        lineX = rightBlockCX;
-        canvas.drawLine(lineX, headCY - blockH * 0.3f, lineX, headCY + blockH * 0.3f,
-                mAccentPaint);
         canvas.restore();
     }
 
@@ -2360,24 +2474,25 @@ public class CatRenderer {
         float headHW = dp(HEAD_W) / 2f;
         float headHH = dp(HEAD_H) / 2f;
 
-        float bubbleCX = headCX + headHW * 0.6f;
-        float bubbleCY = headCY - headHH * 0.4f;
+        // 气泡位置：头顶右上方
+        float bubbleCX = headCX + headHW * 0.75f;
+        float bubbleCY = headCY - headHH * 1.05f;
 
         // 主气泡尺寸
         float bubbleW = dp(40f);
         float bubbleH = dp(30f);
 
-        // 绘制尾随小圆（从头部到气泡的过渡）
+        // 绘制尾随小圆（从头部到气泡的过渡，位置调整让弧线自然）
         mDetailPaint.setStyle(Paint.Style.FILL);
         mDetailPaint.setColor(setAlpha(COLOR_CORE, (int) (alphaInt * 0.9f)));
         mDetailPaint.clearShadowLayer();
-        // 小圆 1（靠近头部）
-        float trail1X = headCX + headHW * 0.3f;
-        float trail1Y = headCY - headHH * 0.15f;
+        // 小圆 1（靠近头顶）
+        float trail1X = headCX + headHW * 0.45f;
+        float trail1Y = headCY - headHH * 0.55f;
         canvas.drawCircle(trail1X, trail1Y, dp(3f), mDetailPaint);
-        // 小圆 2（中间）
-        float trail2X = headCX + headHW * 0.45f;
-        float trail2Y = headCY - headHH * 0.28f;
+        // 小圆 2（中间过渡）
+        float trail2X = headCX + headHW * 0.6f;
+        float trail2Y = headCY - headHH * 0.8f;
         canvas.drawCircle(trail2X, trail2Y, dp(5f), mDetailPaint);
 
         // 主气泡椭圆
