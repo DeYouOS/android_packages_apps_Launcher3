@@ -469,32 +469,22 @@ public class CatRenderer {
 
         float glow = state.glowIntensity;
 
-        // 判断右臂是否需要在脸前绘制（托腮/抹额时手在头前面）
-        boolean rightArmOverFace =
-                state.armPose == RobotState.ArmPose.THINKING
-             || state.armPose == RobotState.ArmPose.WIPE_SWEAT;
-
-        // 8~22. 按后→前顺序绘制各部件
+        // 8~22. 按后→前顺序绘制各部件（手臂在头部之后绘制，避免举手/托腮被头遮挡）
         drawLegsAndFeet(canvas, state, glow);           // 8
         drawBody(canvas, state, glow);                   // 9
-        drawArms(canvas, state, glow, rightArmOverFace); // 10（rightArmOverFace时跳过右臂）
-        drawNeck(canvas, state, glow);                   // 11
-        drawHead(canvas, state, glow);                   // 12
-        drawAntenna(canvas, state, glow);                // 13
-        drawEarBlocks(canvas, state, glow);              // 14
-        drawFacePanel(canvas, state, glow);              // 15
-        drawEyes(canvas, state, glow);                   // 16
-        drawEyebrows(canvas, state, glow);               // 17
-        drawMouth(canvas, state, glow);                  // 18
-        drawForeheadDots(canvas, state, glow);           // 19
-        drawIndicatorLights(canvas, state, glow);        // 20
-        drawThoughtBubble(canvas, state, glow);          // 21
-        drawCheekBlush(canvas, state, glow);             // 22
-
-        // 22b. 延迟绘制的右臂（在脸部所有部件之上，托腮/抹额时手可见）
-        if (rightArmOverFace) {
-            drawDeferredRightArm(canvas, state, glow);
-        }
+        drawNeck(canvas, state, glow);                   // 10
+        drawHead(canvas, state, glow);                   // 11
+        drawAntenna(canvas, state, glow);                // 12
+        drawEarBlocks(canvas, state, glow);              // 13
+        drawFacePanel(canvas, state, glow);              // 14
+        drawEyes(canvas, state, glow);                   // 15
+        drawEyebrows(canvas, state, glow);               // 16
+        drawMouth(canvas, state, glow);                  // 17
+        drawForeheadDots(canvas, state, glow);           // 18
+        drawIndicatorLights(canvas, state, glow);        // 19
+        drawThoughtBubble(canvas, state, glow);          // 20
+        drawCheekBlush(canvas, state, glow);             // 21
+        drawArms(canvas, state, glow, false);            // 22（在头部/脸部之上，手臂不被遮挡）
 
         // 23. 恢复画布状态
         canvas.restore();
