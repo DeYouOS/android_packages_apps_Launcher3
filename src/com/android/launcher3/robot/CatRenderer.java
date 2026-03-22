@@ -146,17 +146,21 @@ public class CatRenderer {
     /** 脖子高度（dp） */
     private static final float NECK_H = 22f;
 
-    // ---- 身体（盾形/心形躯干） ----
-    /** 身体顶部宽度（dp） */
+    // ---- 身体（机甲躯干：胸甲→腰部收窄→臀甲三段式） ----
+    /** 胸甲顶部宽度（dp） */
     private static final float BODY_TOP_W = 145f;
-    /** 身体最大宽度（dp，中部肩膀处） */
+    /** 胸甲最大宽度（dp，肩膀处） */
     private static final float BODY_MID_W = 157f;
-    /** 身体高度（dp）— 加长躯干，填充下方空间，增强机甲修长感 */
+    /** 腰部收窄宽度（dp）— 比胸甲和臀甲都窄，形成机甲腰线 */
+    private static final float BODY_WAIST_W = 110f;
+    /** 臀甲/下腹宽度（dp）— 略宽于腰部，形成装甲裙护甲 */
+    private static final float BODY_HIP_W = 135f;
+    /** 身体总高度（dp） */
     private static final float BODY_H = 200f;
     /** 身体顶部 Y 偏移（相对于原点，脖子下方） */
     private static final float BODY_TOP_Y = -70f;
     /** 身体圆角（dp） */
-    private static final float BODY_R = 30f;
+    private static final float BODY_R = 20f;
 
     // ---- 手臂 ----
     /** 上臂长度（dp） */
@@ -190,17 +194,17 @@ public class CatRenderer {
     /** 左腿 X 偏移（dp） */
     private static final float LEG_X_OFFSET = 27f;
 
-    // ---- 脚/靴子 ----
-    /** 靴子宽度（dp） */
-    private static final float BOOT_W = 48f;
-    /** 靴子高度（dp）— 稍高使靴子更有存在感 */
-    private static final float BOOT_H = 38f;
-    /** 靴子圆角（dp）— 增大圆角让靴子更圆润可爱 */
-    private static final float BOOT_R = 18f;
+    // ---- 脚/机甲战靴 ----
+    /** 战靴宽度（dp） */
+    private static final float BOOT_W = 50f;
+    /** 战靴高度（dp）— 加厚使战靴更有存在感 */
+    private static final float BOOT_H = 44f;
+    /** 战靴圆角（dp）— 小圆角保持棱角机甲感 */
+    private static final float BOOT_R = 8f;
     /** 靴子侧面圆形点缀半径（dp） */
     private static final float BOOT_CIRCLE_R = 6f;
-    /** 靴子前端偏移（dp）— 让鞋头朝前，更像真实鞋子 */
-    private static final float BOOT_TOE_OFFSET = 4f;
+    /** 靴底厚度（dp）— 明显的厚底层 */
+    private static final float BOOT_SOLE_H = 8f;
 
     // ---- 天线参数 ----
     /** 天线杆高度（dp） */
@@ -795,73 +799,83 @@ public class CatRenderer {
         canvas.drawCircle(cx, kneeY, dp(2f), mDetailPaint);
         mDetailPaint.clearShadowLayer();
 
-        // 靴子：前端偏移使鞋头朝前，更像真实鞋子
+        // 机甲战靴：方正厚底 + 护甲板 + 鞋底分层
         float bootY = topY + legLen;
         float bootW = dp(BOOT_W);
         float bootH = dp(BOOT_H);
-        float toeOff = dp(BOOT_TOE_OFFSET);
-        // 靴子整体向前偏移（正方向 = 屏幕右侧 ≈ 鞋头朝前）
-        float bootCX = cx + toeOff;
-        mTempRect.set(bootCX - bootW / 2f, bootY, bootCX + bootW / 2f, bootY + bootH);
+        float bootR = dp(BOOT_R);
+        float soleH = dp(BOOT_SOLE_H);
+        float bootCX = cx;
 
-        // 靴子白色填充
+        // 靴子主体（上部，不含鞋底）
+        float upperH = bootH - soleH;
+        mTempRect.set(bootCX - bootW / 2f, bootY,
+                bootCX + bootW / 2f, bootY + upperH);
         mFillPaint.setColor(COLOR_BODY_WHITE);
-        canvas.drawRoundRect(mTempRect, dp(BOOT_R), dp(BOOT_R), mFillPaint);
-
-        // 靴子深灰描边
+        canvas.drawRoundRect(mTempRect, bootR, bootR, mFillPaint);
         mStrokePaint.setStrokeWidth(dp(STROKE_W));
-        canvas.drawRoundRect(mTempRect, dp(BOOT_R), dp(BOOT_R), mStrokePaint);
+        canvas.drawRoundRect(mTempRect, bootR, bootR, mStrokePaint);
 
-        // 靴底弧线（略微弯曲的椭圆弧，比直线更有立体感）
-        float soleY = bootY + bootH - dp(4f);
-        float soleLeft = bootCX - bootW * 0.38f;
-        float soleRight = bootCX + bootW * 0.38f;
-        mTempRect3.set(soleLeft, soleY - dp(3f), soleRight, soleY + dp(3f));
-        mDetailPaint.setStyle(Paint.Style.STROKE);
-        mDetailPaint.setStrokeWidth(dp(1.5f));
-        mDetailPaint.setColor(COLOR_OUTLINE);
-        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        // 厚鞋底层（深灰色，比靴身略宽，突出厚底感）
+        float soleW = bootW * 1.1f;
+        float soleR = dp(5f);
+        mTempRect.set(bootCX - soleW / 2f, bootY + upperH - dp(2f),
+                bootCX + soleW / 2f, bootY + bootH);
+        mDarkFillPaint.setColor(COLOR_JOINT);
+        canvas.drawRoundRect(mTempRect, soleR, soleR, mDarkFillPaint);
+        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
+        canvas.drawRoundRect(mTempRect, soleR, soleR, mStrokePaint);
+
+        // 靴口护甲带（深色横条，分隔腿管和靴身）
+        float trimY = bootY + dp(3f);
+        float trimH = dp(5f);
+        mTempRect3.set(bootCX - bootW * 0.42f, trimY,
+                bootCX + bootW * 0.42f, trimY + trimH);
+        mDarkFillPaint.setColor(0xFF505050);
+        canvas.drawRoundRect(mTempRect3, dp(2f), dp(2f), mDarkFillPaint);
+
+        // 正面护甲板（半透明浅色矩形，模拟胫甲）
+        float plateTop = trimY + trimH + dp(3f);
+        float plateBot = bootY + upperH - dp(5f);
+        float plateHW = bootW * 0.22f;
+        mTempRect3.set(bootCX - plateHW, plateTop, bootCX + plateHW, plateBot);
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(0x18000000);
         mDetailPaint.clearShadowLayer();
-        canvas.drawArc(mTempRect3, 0f, 180f, false, mDetailPaint);
-
-        // 靴口横线
-        float trimY = bootY + bootH * 0.25f;
-        mDetailPaint.setStrokeWidth(dp(1f));
-        mDetailPaint.setColor(0xFF505050);
-        canvas.drawLine(bootCX - bootW * 0.35f, trimY, bootCX + bootW * 0.35f, trimY, mDetailPaint);
-
-        // 鞋头高光弧：靴子前端的半透明白色弧线，增加圆润质感
+        canvas.drawRoundRect(mTempRect3, dp(3f), dp(3f), mDetailPaint);
+        // 护甲板描边
         mDetailPaint.setStyle(Paint.Style.STROKE);
-        mDetailPaint.setStrokeWidth(dp(2f));
-        mDetailPaint.setColor(0x55FFFFFF);
-        float hlLeft = bootCX + bootW * 0.05f;
-        float hlRight = bootCX + bootW * 0.42f;
-        float hlTop = bootY + bootH * 0.45f;
-        float hlBot = bootY + bootH * 0.75f;
-        mTempRect3.set(hlLeft, hlTop, hlRight, hlBot);
-        canvas.drawArc(mTempRect3, 200f, 140f, false, mDetailPaint);
+        mDetailPaint.setStrokeWidth(dp(0.8f));
+        mDetailPaint.setColor(0x30000000);
+        canvas.drawRoundRect(mTempRect3, dp(3f), dp(3f), mDetailPaint);
 
-        // 靴子侧面青色圆形装饰（主圆）
-        float circleX = bootCX + bootW * 0.2f;
-        float circleY = bootY + bootH * 0.55f;
-        mAccentPaint.setStyle(Paint.Style.STROKE);
-        mAccentPaint.setStrokeWidth(dp(EAR_ACCENT_LINE_W));
+        // 青色指示灯（靴面中央小圆点）
+        float indicatorY = (plateTop + plateBot) / 2f;
+        mAccentPaint.setStyle(Paint.Style.FILL);
         mAccentPaint.setColor(COLOR_EYE_CYAN);
+        mAccentPaint.setShadowLayer(dp(4f), 0, 0, COLOR_EYE_CYAN);
+        canvas.drawCircle(bootCX, indicatorY, dp(2.5f), mAccentPaint);
         mAccentPaint.clearShadowLayer();
-        canvas.drawCircle(circleX, circleY, dp(BOOT_CIRCLE_R), mAccentPaint);
 
-        // 第二个靴子装饰圆：更小，位于主圆上方
-        float circle2Y = bootY + bootH * 0.28f;
-        canvas.drawCircle(circleX, circle2Y, dp(BOOT_CIRCLE_R * 0.6f), mAccentPaint);
+        // 鞋底纹路（2 条短横线模拟防滑底纹）
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(dp(1f));
+        mDetailPaint.setColor(0x44000000);
+        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        float grooveY1 = bootY + upperH + soleH * 0.35f;
+        float grooveY2 = bootY + upperH + soleH * 0.65f;
+        float grooveHW = soleW * 0.3f;
+        canvas.drawLine(bootCX - grooveHW, grooveY1, bootCX + grooveHW, grooveY1, mDetailPaint);
+        canvas.drawLine(bootCX - grooveHW, grooveY2, bootCX + grooveHW, grooveY2, mDetailPaint);
     }
 
     // ==================== 身体 ====================
 
     /**
-     * 绘制机器人躯干（盾形/心形白色体）+ 胸部徽章（支持 3 种 ChestMode）
+     * 绘制机器人躯干（三段式机甲造型）+ 胸部徽章（支持 3 种 ChestMode）
      *
-     * 上部宽圆肩，向下收窄成圆弧底部，形成可爱的盾牌/心形造型。
-     * 白色填充 + 深灰轮廓描边。
+     * 三段结构：胸甲（宽肩展开）→ 腰部（收窄形成腰线）→ 臀甲（展宽，底部平直）。
+     * 白色填充 + 深灰轮廓描边 + 装甲分割线/铆钉/通风口/腰带细节。
      *
      * 胸部徽章根据 state.chestMode 显示不同内容：
      * - NORMAL：青色圆环（默认核心/心脏图标）
@@ -876,20 +890,46 @@ public class CatRenderer {
         float topY = dp(BODY_TOP_Y);
         float topHW = dp(BODY_TOP_W) / 2f;
         float midHW = dp(BODY_MID_W) / 2f;
+        float waistHW = dp(BODY_WAIST_W) / 2f;
+        float hipHW = dp(BODY_HIP_W) / 2f;
         float h = dp(BODY_H);
         float r = dp(BODY_R);
         float botY = topY + h;
 
-        // 构建盾形 Path：顶部圆角矩形 → 中部最宽处 → 底部圆弧收窄
+        // 三段式机甲躯干 Path：
+        // 1. 胸甲区（0%~35%）：从顶部宽肩展开到最大宽度
+        // 2. 腰部区（35%~55%）：急速收窄形成机甲腰线
+        // 3. 臀甲区（55%~100%）：再次展宽，底部平直截断
+        float chestY = topY + h * 0.35f;   // 胸甲最宽点
+        float waistY = topY + h * 0.55f;   // 腰部最窄点
+        float hipY = topY + h * 0.75f;     // 臀甲最宽点
+        float botR = dp(12f);              // 底部圆角（小圆角 = 棱角感）
+
         mBodyPath.reset();
+        // 顶部左上角开始，顺时针
         mBodyPath.moveTo(-topHW + r, topY);
         mBodyPath.lineTo(topHW - r, topY);
         mBodyPath.quadTo(topHW, topY, topHW, topY + r);
-        float midY = topY + h * 0.35f;
-        mBodyPath.lineTo(midHW, midY);
-        mBodyPath.quadTo(midHW, botY - dp(12f), dp(18f), botY);
-        mBodyPath.quadTo(0, botY + dp(12f), -dp(18f), botY);
-        mBodyPath.quadTo(-midHW, botY - dp(12f), -midHW, midY);
+        // 右侧：胸甲展宽
+        mBodyPath.lineTo(midHW, chestY);
+        // 右侧：腰部内收
+        mBodyPath.lineTo(waistHW, waistY);
+        // 右侧：臀甲外展
+        mBodyPath.lineTo(hipHW, hipY);
+        // 右下角圆角
+        mBodyPath.lineTo(hipHW, botY - botR);
+        mBodyPath.quadTo(hipHW, botY, hipHW - botR, botY);
+        // 底部平直线
+        mBodyPath.lineTo(-hipHW + botR, botY);
+        // 左下角圆角
+        mBodyPath.quadTo(-hipHW, botY, -hipHW, botY - botR);
+        // 左侧：臀甲
+        mBodyPath.lineTo(-hipHW, hipY);
+        // 左侧：腰部内收
+        mBodyPath.lineTo(-waistHW, waistY);
+        // 左侧：胸甲展宽
+        mBodyPath.lineTo(-midHW, chestY);
+        // 左侧：回到顶部
         mBodyPath.lineTo(-topHW, topY + r);
         mBodyPath.quadTo(-topHW, topY, -topHW + r, topY);
         mBodyPath.close();
@@ -907,67 +947,73 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawPath(mBodyPath, mStrokePaint);
 
-        // 装甲板分割线：加深的主线 + 两侧高光模拟金属板边缘凸起
-        float seam1Y = topY + h * 0.30f;
-        float seam2Y = topY + h * 0.60f;
-        float seam1HW = topHW + (midHW - topHW) * (0.30f / 0.35f);
-        float seam2HW = midHW * 0.7f;
-        // 主分割线（加深）
+        // 装甲分割线：在腰线和臀甲交界处各画一条，强调三段式结构
         mDetailPaint.setStyle(Paint.Style.STROKE);
-        mDetailPaint.setStrokeWidth(dp(1f));
-        mDetailPaint.setColor(0x44000000);
+        mDetailPaint.setStrokeWidth(dp(1.2f));
+        mDetailPaint.setColor(0x55000000);
         mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
         mDetailPaint.clearShadowLayer();
-        canvas.drawLine(-seam1HW * 0.8f, seam1Y, seam1HW * 0.8f, seam1Y, mDetailPaint);
-        canvas.drawLine(-seam2HW * 0.8f, seam2Y, seam2HW * 0.8f, seam2Y, mDetailPaint);
-        // 分割线上方 1px 白色高光（模拟金属板凸起亮边）
+        // 腰线分割（在腰部最窄处）
+        canvas.drawLine(-waistHW * 0.85f, waistY, waistHW * 0.85f, waistY, mDetailPaint);
+        // 臀甲上沿分割（在臀甲展宽起点）
+        canvas.drawLine(-hipHW * 0.75f, hipY, hipHW * 0.75f, hipY, mDetailPaint);
+        // 分割线高光（腰线上方 + 臀甲上方各 1px 白线）
         mDetailPaint.setStrokeWidth(dp(0.5f));
         mDetailPaint.setColor(0x22FFFFFF);
-        canvas.drawLine(-seam1HW * 0.8f, seam1Y - dp(1f),
-                seam1HW * 0.8f, seam1Y - dp(1f), mDetailPaint);
-        canvas.drawLine(-seam2HW * 0.8f, seam2Y - dp(1f),
-                seam2HW * 0.8f, seam2Y - dp(1f), mDetailPaint);
-        // 分割线下方 1px 白色高光
-        canvas.drawLine(-seam1HW * 0.8f, seam1Y + dp(1f),
-                seam1HW * 0.8f, seam1Y + dp(1f), mDetailPaint);
-        canvas.drawLine(-seam2HW * 0.8f, seam2Y + dp(1f),
-                seam2HW * 0.8f, seam2Y + dp(1f), mDetailPaint);
+        canvas.drawLine(-waistHW * 0.85f, waistY - dp(1f),
+                waistHW * 0.85f, waistY - dp(1f), mDetailPaint);
+        canvas.drawLine(-hipHW * 0.75f, hipY - dp(1f),
+                hipHW * 0.75f, hipY - dp(1f), mDetailPaint);
 
-        // 身体两侧通风口格栅：各 3 条短水平线（宽 8dp，间距 3dp）
-        float ventW = dp(8f);
-        float ventGap = dp(3f);
-        float ventStartY = seam1Y + (seam2Y - seam1Y) * 0.3f;
+        // 胸甲区域两侧通风口格栅（胸甲最宽处附近，4 条短线）
+        float ventW = dp(10f);
+        float ventGap = dp(3.5f);
+        float ventStartY = chestY + dp(5f);
         mDetailPaint.setStrokeWidth(dp(0.8f));
         mDetailPaint.setColor(0x33000000);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             float vy = ventStartY + i * ventGap;
-            // 左侧通风口
-            canvas.drawLine(-midHW + dp(4f), vy, -midHW + dp(4f) + ventW, vy, mDetailPaint);
-            // 右侧通风口
-            canvas.drawLine(midHW - dp(4f) - ventW, vy, midHW - dp(4f), vy, mDetailPaint);
+            float seamWidthAtVent = midHW - (midHW - waistHW) * ((vy - chestY) / (waistY - chestY));
+            canvas.drawLine(-seamWidthAtVent + dp(3f), vy,
+                    -seamWidthAtVent + dp(3f) + ventW, vy, mDetailPaint);
+            canvas.drawLine(seamWidthAtVent - dp(3f) - ventW, vy,
+                    seamWidthAtVent - dp(3f), vy, mDetailPaint);
         }
 
-        // 第一条分割线上方左右各一个铆钉
-        float rivetY = seam1Y - dp(6f);
-        float rivetX = seam1HW * 0.5f;
+        // 臀甲区域铆钉：左右各 2 个
         float rivetR = dp(2f);
-        // 铆钉底色（深灰圆点）
         mDetailPaint.setStyle(Paint.Style.FILL);
         mDetailPaint.setColor(COLOR_JOINT);
-        canvas.drawCircle(-rivetX, rivetY, rivetR, mDetailPaint);
-        canvas.drawCircle(rivetX, rivetY, rivetR, mDetailPaint);
-        // 铆钉白色高光点
+        // 上排铆钉（臀甲展宽点附近）
+        float rY1 = hipY + dp(6f);
+        float rX1 = hipHW * 0.55f;
+        canvas.drawCircle(-rX1, rY1, rivetR, mDetailPaint);
+        canvas.drawCircle(rX1, rY1, rivetR, mDetailPaint);
+        // 下排铆钉（底部附近）
+        float rY2 = botY - dp(10f);
+        canvas.drawCircle(-rX1, rY2, rivetR, mDetailPaint);
+        canvas.drawCircle(rX1, rY2, rivetR, mDetailPaint);
+        // 铆钉高光
         mDetailPaint.setColor(0xAAFFFFFF);
         float highlightR = dp(0.8f);
-        canvas.drawCircle(-rivetX - dp(0.3f), rivetY - dp(0.3f), highlightR, mDetailPaint);
-        canvas.drawCircle(rivetX - dp(0.3f), rivetY - dp(0.3f), highlightR, mDetailPaint);
+        canvas.drawCircle(-rX1 - dp(0.3f), rY1 - dp(0.3f), highlightR, mDetailPaint);
+        canvas.drawCircle(rX1 - dp(0.3f), rY1 - dp(0.3f), highlightR, mDetailPaint);
+        canvas.drawCircle(-rX1 - dp(0.3f), rY2 - dp(0.3f), highlightR, mDetailPaint);
+        canvas.drawCircle(rX1 - dp(0.3f), rY2 - dp(0.3f), highlightR, mDetailPaint);
+
+        // 腰部深色护甲带：在腰线处画一条深色横条，强调机甲腰带
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(0x22000000);
+        mTempRect.set(-waistHW * 0.9f, waistY - dp(4f),
+                waistHW * 0.9f, waistY + dp(4f));
+        canvas.drawRoundRect(mTempRect, dp(3f), dp(3f), mDetailPaint);
 
         // 肩甲
-        drawShoulderPad(canvas, -midHW, topY, midY, true);
-        drawShoulderPad(canvas, midHW, topY, midY, false);
+        drawShoulderPad(canvas, -midHW, topY, chestY, true);
+        drawShoulderPad(canvas, midHW, topY, chestY, false);
 
-        // ---- 胸部徽章：根据 ChestMode 绘制不同内容 ----
-        float emblemCY = topY + h * 0.42f;
+        // ---- 胸部徽章：位于胸甲区中心 ----
+        float emblemCY = topY + h * 0.25f;
         float emblemR = dp(CHEST_EMBLEM_R);
 
         switch (state.chestMode) {
