@@ -1060,8 +1060,8 @@ public class CatRenderer {
      * - IDLE_SIDE: 双臂下垂，上臂 -105°，前臂 -80°
      * - WAVE: 右臂挥手（±8° 振荡），左臂下垂
      * - BOTH_UP: 双臂上举约 50°，轻微振荡
-     * - POINT_LEFT: 左臂水平 180°，右臂下垂
-     * - POINT_RIGHT: 右臂水平 0°，左臂下垂
+     * - POINT_LEFT: 左臂斜下 135° + 前臂向左 190°，右臂下垂
+     * - POINT_RIGHT: 右臂斜下 45° + 前臂向右 -10°，左臂下垂
      * - GRAB_HOLD: 双臂前弯约 70°
      * - THINKING: 右手托腮 -30°/-150°，左臂交叉
      * - CLAP: 双臂前方振荡对拍（6Hz 正弦）
@@ -1099,18 +1099,18 @@ public class CatRenderer {
                 rightForearmDeg = -120f;
                 break;
             case POINT_LEFT:
-                // 左臂水平伸出（180° = 向左），右臂自然下垂
-                leftUpperDeg = 180f;
-                leftForearmDeg = 0f;
+                // 左臂指向左侧：上臂斜下135°，前臂向左190°，缩短延伸避免超出屏幕
+                leftUpperDeg = 135f;
+                leftForearmDeg = 190f;
                 rightUpperDeg = 88f;
                 rightForearmDeg = 75f;
                 break;
             case POINT_RIGHT:
-                // 右臂水平伸出（0° = 向右），左臂自然下垂
+                // 右臂指向右侧：上臂斜下45°，前臂向右-10°，缩短延伸距离避免超出屏幕
                 leftUpperDeg = 88f;
                 leftForearmDeg = 75f;
-                rightUpperDeg = 0f;
-                rightForearmDeg = 0f;
+                rightUpperDeg = 45f;
+                rightForearmDeg = -10f;
                 break;
             case GRAB_HOLD:
                 // 双臂前弯在胸前：上臂前伸 30°，前臂向内弯 -60°
