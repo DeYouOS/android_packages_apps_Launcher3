@@ -13,10 +13,22 @@ import android.graphics.Shader;
 import java.util.Random;
 
 /**
- * 扁平风格 AI 机器人 Canvas 2D 渲染器（增强版）
+ * 扁平风格 AI 机器人 Canvas 2D 渲染器（增强版 v2）
  *
  * 使用纯 Canvas Path/drawArc/drawCircle/drawRoundRect 绘制可爱的白色卡通机器人。
  * 所有形状采用「白色填充 + 深灰描边」的扁平设计风格，眼睛带有青色发光效果。
+ *
+ * 相比 v1 版本新增/增强的功能：
+ * - 9 种手臂姿态（ArmPose）：自然下垂、挥手、双手上举、左/右指、抓握、思考、鼓掌、擦汗
+ * - 4 种眼睛特效（EyeSpecial）：闪烁星光、晕眩螺旋、爱心瞳孔、瞌睡半闭
+ * - 7 种嘴巴形状（MouthShape）：中性、微笑、大笑、O 型、D 型、扁嘴、波浪
+ * - 6 种眉毛状态（EyebrowState）：中性、上扬、皱眉、单挑、悲伤、生气
+ * - 10 种思维气泡（ThoughtBubbleType）：省略号、问号、感叹号、爱心、音符、ZZZ 等
+ * - 5 种指示灯状态（IndicatorState）：正常、呼吸、警告、错误、AI 活跃
+ * - 3 种胸部模式（ChestMode）：正常、充电、二维码
+ * - 天线闪烁增强：支持 antennaFlashing + antennaGlowPhase
+ * - 身体动作变换：BodyAction 驱动的平移/旋转/缩放
+ * - 脸颊红晕效果：基于 AIEmotion 的害羞腮红
  *
  * 视觉风格：
  * - 深空星云渐变背景（深紫 #0A0618 → 深蓝 #0C1428）
@@ -24,14 +36,13 @@ import java.util.Random;
  * - 青色发光圆眼（#00D4FF 外环 + #1A1A1A 黑瞳）
  * - 深色面板/关节（#2D2D2D / #4A4A4A）
  * - 60~80 颗星星粒子 + 流星效果 + 环境辉光
- * - 天线、胸部徽章、面板接缝线、肩甲等丰富视觉细节
- * - 表情系统：IDLE（正常）、EXCITED（眼睛更亮、轻微倾斜）、SURPRISED（眼睛圆睁）
  *
  * 所有尺寸使用 dp 定义，运行时根据 Canvas 密度转 px。
  * 绘制坐标以机器人 bodyX/bodyY 为原点，各部件相对定位。
  *
  * 绘制顺序（后→前）：
- * 背景星空 → 环境辉光 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 天线 → 侧耳 → 面板 → 眼睛 → 额头点 → 指示灯
+ * 背景星空 → 环境辉光 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 天线 → 侧耳
+ * → 面板 → 眼睛 → 眉毛 → 嘴巴 → 额头点 → 指示灯 → 思维气泡 → 脸颊红晕
  */
 public class CatRenderer {
 
@@ -74,8 +85,6 @@ public class CatRenderer {
     private static final int COLOR_PANEL_HIGHLIGHT = 0xFF555555;
 
     // ==================== 机器人比例尺寸（dp） ====================
-    // 目标：机器人占屏幕高度 ~85%，约 720dp (@2.75x 密度)
-    // 头部 ~45%, 身体 ~25%, 腿+脚 ~30%，在原 596dp 基础上按 1.21x 放大
 
     // ---- 头部 ----
     /** 头部宽度（dp） */
@@ -360,13 +369,18 @@ public class CatRenderer {
         return dpVal * mDensity;
     }
 
+    // ==================== 主绘制入口 ====================
+
     /**
      * 主绘制入口
      *
      * 按照从后到前的层次绘制所有部件，实现完整的 AI 机器人视觉效果。
      * 每帧由 RobotRenderThread 调用。
      *
-     * 绘制顺序：背景 → 环境辉光 → 腿/脚 → 身体 → 手臂 → 脖子 → 头部 → 天线 → 侧耳 → 面板 → 眼睛 → 额头点 → 指示灯
+     * 绘制顺序：
+     * 背景 → 环境辉光 → BodyAction 变换 → 腿/脚 → 身体(ChestMode) → 手臂(ArmPose)
+     * → 脖子 → 头部 → 天线(闪烁) → 侧耳 → 面板 → 眼睛(EyeSpecial) → 眉毛(EyebrowState)
+     * → 嘴巴(MouthShape) → 额头点 → 指示灯(IndicatorState) → 思维气泡 → 脸颊红晕
      *
      * @param canvas 绘制目标画布（来自 TextureView.lockCanvas，软件渲染模式）
      * @param state  当前机器人动画状态（位置、表情、眼睛参数等）
@@ -381,45 +395,96 @@ public class CatRenderer {
         float sw = state.screenWidth > 0 ? state.screenWidth : canvas.getWidth();
         float sh = state.screenHeight > 0 ? state.screenHeight : canvas.getHeight();
 
-        // 绘制深空星云渐变背景
+        // 1. 绘制深空星云渐变背景
         drawBackground(canvas, sw, sh, state);
 
+        // 2. 保存画布状态并平移到机器人身体中心
         canvas.save();
-
-        // 平移到机器人身体中心（bodyY 默认 sh/2，机器人放大后居中即可）
         canvas.translate(state.bodyX, state.bodyY);
 
-        // 呼吸浮动 + 旋转（利用 idleTimer 产生缓慢上下浮动效果）
+        // 3. 呼吸浮动偏移（利用 idleTimer 产生缓慢上下浮动效果）
         float bobOffset = (float) Math.sin(state.idleTimer * 1.2) * dp(5f);
         canvas.translate(0, bobOffset);
+
+        // 4. BodyAction 变换：在呼吸浮动之后、旋转之前应用身体动作
+        float actionProg = state.bodyActionProgress;
+        float actionInt = state.bodyActionIntensity;
+        if (state.bodyAction != RobotState.BodyAction.NONE && actionInt > 0.01f) {
+            switch (state.bodyAction) {
+                case BOUNCE:
+                    // 弹跳：上下正弦位移，频率 4Hz
+                    float bounceY = (float) Math.abs(Math.sin(actionProg * Math.PI * 2)) * dp(15f) * actionInt;
+                    canvas.translate(0, -bounceY);
+                    break;
+                case SHIVER:
+                    // 颤抖：高频随机水平微位移
+                    float shiverX = (float) Math.sin(actionProg * Math.PI * 20) * dp(2f) * actionInt;
+                    canvas.translate(shiverX, 0);
+                    break;
+                case TILT:
+                    // 侧倾：身体向一侧倾斜 ~10°
+                    float tiltAngle = (float) Math.sin(actionProg * Math.PI) * 10f * actionInt;
+                    canvas.rotate(tiltAngle);
+                    break;
+                case NOD:
+                    // 点头：小幅前后倾斜（用纵向位移模拟）
+                    float nodY = (float) Math.sin(actionProg * Math.PI * 2) * dp(6f) * actionInt;
+                    canvas.translate(0, nodY);
+                    break;
+                case SHAKE_HEAD:
+                    // 摇头：小幅左右旋转
+                    float shakeAngle = (float) Math.sin(actionProg * Math.PI * 4) * 8f * actionInt;
+                    canvas.rotate(shakeAngle);
+                    break;
+                case YAWN:
+                    // 打哈欠：身体向后仰（微小旋转）
+                    float yawnAngle = (float) Math.sin(actionProg * Math.PI) * -5f * actionInt;
+                    canvas.rotate(yawnAngle);
+                    break;
+                case STRETCH:
+                    // 伸展：身体纵向拉伸
+                    float stretchScale = 1f + (float) Math.sin(actionProg * Math.PI) * 0.05f * actionInt;
+                    canvas.scale(1f, stretchScale);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // 5. 全局旋转
         canvas.rotate(state.rotation);
 
-        // 呼吸缩放（bodyScale 在 0.98~1.02 范围，保持机器人自然呼吸感）
+        // 6. 呼吸缩放（bodyScale 在 0.98~1.02 范围，保持机器人自然呼吸感）
         float scale = state.bodyScale;
         if (scale > 0.01f) {
             canvas.scale(scale, scale);
         }
 
-        // 表情影响：EXCITED 时轻微前倾
+        // 7. 表情影响：EXCITED 时轻微前倾
         if (state.expression == RobotState.Expression.EXCITED) {
             canvas.rotate(2f * state.expressionBlend);
         }
 
         float glow = state.glowIntensity;
 
-        // ---- 绘制顺序：后→前 ----
-        drawLegsAndFeet(canvas, state, glow);
-        drawBody(canvas, state, glow);
-        drawArms(canvas, state, glow);
-        drawNeck(canvas, state, glow);
-        drawHead(canvas, state, glow);
-        drawAntenna(canvas, state, glow);
-        drawEarBlocks(canvas, state, glow);
-        drawFacePanel(canvas, state, glow);
-        drawEyes(canvas, state, glow);
-        drawForeheadDots(canvas, state, glow);
-        drawIndicatorLights(canvas, state, glow);
+        // 8~22. 按后→前顺序绘制各部件
+        drawLegsAndFeet(canvas, state, glow);           // 8
+        drawBody(canvas, state, glow);                   // 9
+        drawArms(canvas, state, glow);                   // 10
+        drawNeck(canvas, state, glow);                   // 11
+        drawHead(canvas, state, glow);                   // 12
+        drawAntenna(canvas, state, glow);                // 13
+        drawEarBlocks(canvas, state, glow);              // 14
+        drawFacePanel(canvas, state, glow);              // 15
+        drawEyes(canvas, state, glow);                   // 16
+        drawEyebrows(canvas, state, glow);               // 17
+        drawMouth(canvas, state, glow);                  // 18
+        drawForeheadDots(canvas, state, glow);           // 19
+        drawIndicatorLights(canvas, state, glow);        // 20
+        drawThoughtBubble(canvas, state, glow);          // 21
+        drawCheekBlush(canvas, state, glow);             // 22
 
+        // 23. 恢复画布状态
         canvas.restore();
     }
 
@@ -520,17 +585,17 @@ public class CatRenderer {
             mStarX[i] = mRandom.nextFloat() * sw;
             mStarY[i] = mRandom.nextFloat() * sh;
             mStarPhase[i] = mRandom.nextFloat() * (float) (Math.PI * 2);
-            mStarDriftX[i] = (mRandom.nextFloat() - 0.5f) * dp(3f); // 缓慢漂移
+            mStarDriftX[i] = (mRandom.nextFloat() - 0.5f) * dp(3f);
             mStarDriftY[i] = (mRandom.nextFloat() - 0.5f) * dp(2f);
 
             // 10% 概率为大号青色调星星
             if (mRandom.nextFloat() < 0.1f) {
                 mStarType[i] = 1;
-                mStarRadius[i] = 2.5f + mRandom.nextFloat() * 1.5f; // 2.5~4 dp（更大）
+                mStarRadius[i] = 2.5f + mRandom.nextFloat() * 1.5f;
                 mStarAlpha[i] = 0.4f + mRandom.nextFloat() * 0.4f;
             } else {
                 mStarType[i] = 0;
-                mStarRadius[i] = 1f + mRandom.nextFloat() * 2f; // 1~3 dp
+                mStarRadius[i] = 1f + mRandom.nextFloat() * 2f;
                 mStarAlpha[i] = 0.3f + mRandom.nextFloat() * 0.5f;
             }
         }
@@ -611,7 +676,6 @@ public class CatRenderer {
                 float lifeRatio = mShootLife[i] / mShootMaxLife[i];
                 float headAlpha = lifeRatio * 0.9f;
                 float tailLen = dp(30f) * lifeRatio;
-                // 尾巴方向为速度反方向的单位向量
                 float speed = (float) Math.sqrt(mShootVX[i] * mShootVX[i]
                         + mShootVY[i] * mShootVY[i]);
                 float nx = -mShootVX[i] / speed;
@@ -630,10 +694,9 @@ public class CatRenderer {
                 // 死亡后小概率重生（约每 3 秒一颗）
                 if (mRandom.nextFloat() < dt * 0.33f) {
                     mShootAlive[i] = true;
-                    // 从屏幕上部随机位置出现，向右下飞行
                     mShootX[i] = mRandom.nextFloat() * sw;
                     mShootY[i] = mRandom.nextFloat() * sh * 0.3f;
-                    float angle = 0.5f + mRandom.nextFloat() * 0.7f; // 约 30~70 度
+                    float angle = 0.5f + mRandom.nextFloat() * 0.7f;
                     float spd = dp(200f + mRandom.nextFloat() * 150f);
                     mShootVX[i] = (float) Math.cos(angle) * spd;
                     mShootVY[i] = (float) Math.sin(angle) * spd;
@@ -651,7 +714,6 @@ public class CatRenderer {
      *
      * 两条短腿从臀部连接器向下延伸，底部是大块状靴子。
      * 腿部为白色管状 + 暗色膝关节球 + 白色靴子配青色圆形装饰。
-     * 新增：膝盖青色点缀、小腿面板、靴底/鞋口线/双圆装饰。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -708,13 +770,13 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, dp(6f), dp(6f), mStrokePaint);
 
-        // ---- 小腿面板：半透明白色矩形，模拟正面板件 ----
+        // 小腿面板：半透明白色矩形，模拟正面板件
         float shinTop = kneeY + dp(JOINT_R) + dp(2f);
         float shinBot = topY + legLen - dp(4f);
         float shinHalfW = halfW * 0.5f;
         mTempRect3.set(cx - shinHalfW, shinTop, cx + shinHalfW, shinBot);
         mDetailPaint.setStyle(Paint.Style.FILL);
-        mDetailPaint.setColor(0x33FFFFFF); // 20% 透明白色
+        mDetailPaint.setColor(0x33FFFFFF);
         mDetailPaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect3, dp(2f), dp(2f), mDetailPaint);
 
@@ -724,14 +786,14 @@ public class CatRenderer {
         mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
         canvas.drawCircle(cx, kneeY, dp(JOINT_R), mStrokePaint);
 
-        // ---- 膝盖青色点缀：关节球上的小青色圆点 ----
+        // 膝盖青色点缀：关节球上的小青色圆点
         mDetailPaint.setStyle(Paint.Style.FILL);
         mDetailPaint.setColor(COLOR_EYE_CYAN);
         mDetailPaint.setShadowLayer(dp(3f), 0, 0, COLOR_EYE_CYAN);
         canvas.drawCircle(cx, kneeY, dp(2f), mDetailPaint);
         mDetailPaint.clearShadowLayer();
 
-        // ---- 靴子 ----
+        // 靴子
         float bootY = topY + legLen;
         float bootW = dp(BOOT_W);
         float bootH = dp(BOOT_H);
@@ -745,7 +807,7 @@ public class CatRenderer {
         mStrokePaint.setStrokeWidth(dp(STROKE_W));
         canvas.drawRoundRect(mTempRect, dp(BOOT_R), dp(BOOT_R), mStrokePaint);
 
-        // ---- 靴底线：靴子最底部的深色细线，模拟鞋底 ----
+        // 靴底线
         float soleY = bootY + bootH - dp(3f);
         mDetailPaint.setStyle(Paint.Style.STROKE);
         mDetailPaint.setStrokeWidth(dp(1.5f));
@@ -754,7 +816,7 @@ public class CatRenderer {
         mDetailPaint.clearShadowLayer();
         canvas.drawLine(cx - bootW * 0.35f, soleY, cx + bootW * 0.35f, soleY, mDetailPaint);
 
-        // ---- 靴口横线：靴子上部约 30% 处的深灰横线，模拟鞋口 ----
+        // 靴口横线
         float trimY = bootY + bootH * 0.3f;
         mDetailPaint.setStrokeWidth(dp(1f));
         mDetailPaint.setColor(0xFF505050);
@@ -769,7 +831,7 @@ public class CatRenderer {
         mAccentPaint.clearShadowLayer();
         canvas.drawCircle(circleX, circleY, dp(BOOT_CIRCLE_R), mAccentPaint);
 
-        // ---- 第二个靴子圆形装饰：更小，位于主圆上方 ----
+        // 第二个靴子圆形装饰：更小，位于主圆上方
         float circle2Y = bootY + bootH * 0.3f;
         canvas.drawCircle(circleX, circle2Y, dp(BOOT_CIRCLE_R * 0.6f), mAccentPaint);
     }
@@ -777,11 +839,15 @@ public class CatRenderer {
     // ==================== 身体 ====================
 
     /**
-     * 绘制机器人躯干（盾形/心形白色体）
+     * 绘制机器人躯干（盾形/心形白色体）+ 胸部徽章（支持 3 种 ChestMode）
      *
      * 上部宽圆肩，向下收窄成圆弧底部，形成可爱的盾牌/心形造型。
      * 白色填充 + 深灰轮廓描边。
-     * 新增：胸部徽章、面板接缝线、肩甲。
+     *
+     * 胸部徽章根据 state.chestMode 显示不同内容：
+     * - NORMAL：青色圆环（默认核心/心脏图标）
+     * - CHARGING：绿色脉冲圆环 + 进度圆弧（基于 chestTaskProgress）
+     * - QR_CODE：简化的网格图案
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -797,23 +863,15 @@ public class CatRenderer {
 
         // 构建盾形 Path：顶部圆角矩形 → 中部最宽处 → 底部圆弧收窄
         mBodyPath.reset();
-        // 从左上角开始
         mBodyPath.moveTo(-topHW + r, topY);
         mBodyPath.lineTo(topHW - r, topY);
-        // 右上圆角
         mBodyPath.quadTo(topHW, topY, topHW, topY + r);
-        // 右侧向外扩展到中部最宽处
         float midY = topY + h * 0.35f;
         mBodyPath.lineTo(midHW, midY);
-        // 右侧向下收窄到底部
         mBodyPath.quadTo(midHW, botY - dp(12f), dp(18f), botY);
-        // 底部圆弧
         mBodyPath.quadTo(0, botY + dp(12f), -dp(18f), botY);
-        // 左侧向上
         mBodyPath.quadTo(-midHW, botY - dp(12f), -midHW, midY);
-        // 左侧回到顶部
         mBodyPath.lineTo(-topHW, topY + r);
-        // 左上圆角
         mBodyPath.quadTo(-topHW, topY, -topHW + r, topY);
         mBodyPath.close();
 
@@ -830,42 +888,113 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawPath(mBodyPath, mStrokePaint);
 
-        // ---- 身体面板接缝线：两条水平半透明白线，模拟面板拼接 ----
+        // 身体面板接缝线：两条水平半透明白线
         float seam1Y = topY + h * 0.30f;
         float seam2Y = topY + h * 0.60f;
-        // 在这些 Y 高度上，计算身体的大致宽度
         float seam1HW = topHW + (midHW - topHW) * (0.30f / 0.35f);
-        float seam2HW = midHW * 0.7f; // 下半部分已收窄
+        float seam2HW = midHW * 0.7f;
         mDetailPaint.setStyle(Paint.Style.STROKE);
         mDetailPaint.setStrokeWidth(dp(0.8f));
-        mDetailPaint.setColor(0x66FFFFFF); // 40% 透明白色
+        mDetailPaint.setColor(0x66FFFFFF);
         mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
         mDetailPaint.clearShadowLayer();
         canvas.drawLine(-seam1HW * 0.8f, seam1Y, seam1HW * 0.8f, seam1Y, mDetailPaint);
         canvas.drawLine(-seam2HW * 0.8f, seam2Y, seam2HW * 0.8f, seam2Y, mDetailPaint);
 
-        // ---- 肩甲：身体上方两侧略深色的小三角区域，定义肩膀 ----
+        // 肩甲
         drawShoulderPad(canvas, -midHW, topY, midY, true);
         drawShoulderPad(canvas, midHW, topY, midY, false);
 
-        // ---- 胸部徽章：身体中心的青色圆环（核心/心脏图标） ----
+        // ---- 胸部徽章：根据 ChestMode 绘制不同内容 ----
         float emblemCY = topY + h * 0.42f;
         float emblemR = dp(CHEST_EMBLEM_R);
-        // 外圈青色发光
-        mAccentPaint.setStyle(Paint.Style.STROKE);
-        mAccentPaint.setStrokeWidth(dp(2f));
-        mAccentPaint.setColor(COLOR_EYE_CYAN);
-        mAccentPaint.setShadowLayer(dp(8f) * glow, 0, 0, COLOR_EYE_CYAN);
-        canvas.drawCircle(0, emblemCY, emblemR, mAccentPaint);
-        mAccentPaint.clearShadowLayer();
-        // 内圈更小的实心青色圆
-        mDetailPaint.setStyle(Paint.Style.FILL);
-        mDetailPaint.setColor(0x4400D4FF); // 半透明青色填充
-        mDetailPaint.clearShadowLayer();
-        canvas.drawCircle(0, emblemCY, emblemR * 0.55f, mDetailPaint);
-        // 中心白色小点
-        mDetailPaint.setColor(0xAAFFFFFF);
-        canvas.drawCircle(0, emblemCY, dp(2.5f), mDetailPaint);
+
+        switch (state.chestMode) {
+            case CHARGING:
+                // 充电模式：绿色脉冲外圈 + 进度弧
+                float chargePulse = 0.6f + 0.4f * (float) Math.sin(state.idleTimer * 3.0);
+                int chargeGreen = 0xFF00FF66;
+                mAccentPaint.setStyle(Paint.Style.STROKE);
+                mAccentPaint.setStrokeWidth(dp(2.5f));
+                mAccentPaint.setColor(chargeGreen);
+                mAccentPaint.setShadowLayer(dp(8f) * chargePulse, 0, 0, chargeGreen);
+                canvas.drawCircle(0, emblemCY, emblemR, mAccentPaint);
+                mAccentPaint.clearShadowLayer();
+
+                // 进度弧：从顶部顺时针绘制，基于 chestTaskProgress
+                float sweepAngle = state.chestTaskProgress * 360f;
+                mTempRect2.set(-emblemR * 0.75f, emblemCY - emblemR * 0.75f,
+                        emblemR * 0.75f, emblemCY + emblemR * 0.75f);
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(3f));
+                mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+                mDetailPaint.setColor(chargeGreen);
+                mDetailPaint.clearShadowLayer();
+                canvas.drawArc(mTempRect2, -90f, sweepAngle, false, mDetailPaint);
+
+                // 中心闪电符号简化：一条折线
+                mDetailPaint.setStrokeWidth(dp(1.5f));
+                mDetailPaint.setColor(0xCCFFFFFF);
+                float boltH = emblemR * 0.5f;
+                canvas.drawLine(dp(1f), emblemCY - boltH, -dp(2f), emblemCY, mDetailPaint);
+                canvas.drawLine(-dp(2f), emblemCY, dp(1f), emblemCY + boltH, mDetailPaint);
+                break;
+
+            case QR_CODE:
+                // 二维码模式：简化的 3x3 网格
+                float gridSize = emblemR * 1.2f;
+                float cellSize = gridSize / 3f;
+                float gridLeft = -gridSize / 2f;
+                float gridTop = emblemCY - gridSize / 2f;
+
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(COLOR_FACE_PANEL);
+                mDetailPaint.clearShadowLayer();
+                // 绘制 3x3 网格中的部分单元格（模拟二维码图案）
+                // 填充角落和中心形成类 QR 定位符
+                for (int row = 0; row < 3; row++) {
+                    for (int col = 0; col < 3; col++) {
+                        // 四个角和中心绘制深色块
+                        boolean fill = (row == 0 && col == 0)
+                                || (row == 0 && col == 2)
+                                || (row == 2 && col == 0)
+                                || (row == 1 && col == 1)
+                                || (row == 2 && col == 2);
+                        if (fill) {
+                            float cx = gridLeft + col * cellSize + cellSize * 0.15f;
+                            float cy = gridTop + row * cellSize + cellSize * 0.15f;
+                            mTempRect2.set(cx, cy, cx + cellSize * 0.7f, cy + cellSize * 0.7f);
+                            canvas.drawRect(mTempRect2, mDetailPaint);
+                        }
+                    }
+                }
+                // 外框
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(1f));
+                mDetailPaint.setColor(COLOR_OUTLINE);
+                mTempRect2.set(gridLeft, gridTop, gridLeft + gridSize, gridTop + gridSize);
+                canvas.drawRect(mTempRect2, mDetailPaint);
+                break;
+
+            case NORMAL:
+            default:
+                // 正常模式：青色圆环徽章（原版）
+                mAccentPaint.setStyle(Paint.Style.STROKE);
+                mAccentPaint.setStrokeWidth(dp(2f));
+                mAccentPaint.setColor(COLOR_EYE_CYAN);
+                mAccentPaint.setShadowLayer(dp(8f) * glow, 0, 0, COLOR_EYE_CYAN);
+                canvas.drawCircle(0, emblemCY, emblemR, mAccentPaint);
+                mAccentPaint.clearShadowLayer();
+                // 内圈半透明青色填充
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(0x4400D4FF);
+                mDetailPaint.clearShadowLayer();
+                canvas.drawCircle(0, emblemCY, emblemR * 0.55f, mDetailPaint);
+                // 中心白色小点
+                mDetailPaint.setColor(0xAAFFFFFF);
+                canvas.drawCircle(0, emblemCY, dp(2.5f), mDetailPaint);
+                break;
+        }
     }
 
     /**
@@ -884,10 +1013,9 @@ public class CatRenderer {
         mTempPath.reset();
         float padW = dp(12f);
         float padH = dp(25f);
-        float baseX = isLeft ? sideX : sideX;
+        float baseX = sideX;
         float dirMul = isLeft ? -1f : 1f;
 
-        // 从肩膀连接点向外延伸的小梯形
         mTempPath.moveTo(baseX, topY + dp(10f));
         mTempPath.lineTo(baseX + dirMul * padW * 0.3f, topY + dp(5f));
         mTempPath.lineTo(baseX + dirMul * padW * 0.5f, topY + padH * 0.5f);
@@ -895,19 +1023,30 @@ public class CatRenderer {
         mTempPath.close();
 
         mDetailPaint.setStyle(Paint.Style.FILL);
-        mDetailPaint.setColor(0x22000000); // 非常轻微的深色覆盖
+        mDetailPaint.setColor(0x22000000);
         mDetailPaint.clearShadowLayer();
         canvas.drawPath(mTempPath, mDetailPaint);
     }
 
-    // ==================== 手臂 ====================
+    // ==================== 手臂（9 种姿态） ====================
 
     /**
-     * 绘制双臂（左臂自然下垂 + 右臂举起挥手）
+     * 绘制双臂（支持 9 种 ArmPose 姿态）
      *
-     * 每条手臂由上臂 + 前臂 + 手组成，各段之间用深色关节球连接。
-     * 右臂有基于 idleTimer 的挥手摆动动画。
-     * 新增：肘部和腕部青色点缀、腕部护腕环。
+     * 根据 state.armPose 决定左右臂的上臂角度和前臂角度，
+     * 通过 state.armTransitionBlend 在姿态间平滑过渡。
+     * 每条手臂由上臂管 + 肘关节球 + 前臂管 + 腕关节球 + 手指组成。
+     *
+     * 姿态角度定义（度，0°=右水平，-90°=正上，+90°=正下）：
+     * - IDLE_SIDE: 双臂下垂，上臂 -105°，前臂 -80°
+     * - WAVE: 右臂挥手（±8° 振荡），左臂下垂
+     * - BOTH_UP: 双臂上举约 50°，轻微振荡
+     * - POINT_LEFT: 左臂水平 180°，右臂下垂
+     * - POINT_RIGHT: 右臂水平 0°，左臂下垂
+     * - GRAB_HOLD: 双臂前弯约 70°
+     * - THINKING: 右手托腮 -30°/-150°，左臂交叉
+     * - CLAP: 双臂前方振荡对拍（6Hz 正弦）
+     * - WIPE_SWEAT: 右手抹额 -25°/-155°，左臂下垂
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -917,31 +1056,117 @@ public class CatRenderer {
         float shoulderY = dp(BODY_TOP_Y) + dp(SHOULDER_Y_OFFSET);
         float bodyMidHW = dp(BODY_MID_W) / 2f;
 
-        // 左臂（自然下垂）：肩膀在身体左侧
-        drawLeftArm(canvas, -bodyMidHW, shoulderY, state, glow);
+        // 根据 ArmPose 计算左右臂的目标角度
+        float leftUpperDeg, leftForearmDeg, rightUpperDeg, rightForearmDeg;
+        // 挥手振荡量（仅 WAVE 和 CLAP 使用）
+        float waveOsc = (float) Math.sin(state.idleTimer * 3.0) * 8f;
+        // 鼓掌振荡量（6Hz）
+        float clapOsc = (float) Math.sin(state.idleTimer * 6.0 * Math.PI * 2) * 15f;
 
-        // 右臂（举起挥手）：肩膀在身体右侧
-        drawRightArm(canvas, bodyMidHW, shoulderY, state, glow);
+        switch (state.armPose) {
+            case WAVE:
+                // 右臂挥手：上臂 -45° + 振荡，前臂 -110° + 振荡
+                leftUpperDeg = -105f;
+                leftForearmDeg = -80f;
+                rightUpperDeg = -45f + waveOsc;
+                rightForearmDeg = -110f + waveOsc * 0.5f;
+                break;
+            case BOTH_UP:
+                // 双臂上举：上臂 -50°，前臂 -120°，轻微振荡
+                float upOsc = (float) Math.sin(state.idleTimer * 2.0) * 3f;
+                leftUpperDeg = -50f - upOsc;
+                leftForearmDeg = -120f;
+                rightUpperDeg = -50f + upOsc;
+                rightForearmDeg = -120f;
+                break;
+            case POINT_LEFT:
+                // 左臂水平伸出（180° = 向左），右臂下垂
+                leftUpperDeg = 180f;
+                leftForearmDeg = 0f;
+                rightUpperDeg = -105f;
+                rightForearmDeg = -80f;
+                break;
+            case POINT_RIGHT:
+                // 右臂水平伸出（0° = 向右），左臂下垂
+                leftUpperDeg = -105f;
+                leftForearmDeg = -80f;
+                rightUpperDeg = 0f;
+                rightForearmDeg = 0f;
+                break;
+            case GRAB_HOLD:
+                // 双臂前弯：上臂 -70°，前臂 -140°
+                leftUpperDeg = -70f;
+                leftForearmDeg = -140f;
+                rightUpperDeg = -70f;
+                rightForearmDeg = -140f;
+                break;
+            case THINKING:
+                // 右手托腮，左臂交叉
+                leftUpperDeg = -85f;
+                leftForearmDeg = -130f;
+                rightUpperDeg = -30f;
+                rightForearmDeg = -150f;
+                break;
+            case CLAP:
+                // 双臂在身前振荡对拍
+                leftUpperDeg = -60f + clapOsc;
+                leftForearmDeg = -120f;
+                rightUpperDeg = -60f - clapOsc;
+                rightForearmDeg = -120f;
+                break;
+            case WIPE_SWEAT:
+                // 右手抹额，左臂下垂
+                leftUpperDeg = -105f;
+                leftForearmDeg = -80f;
+                rightUpperDeg = -25f;
+                rightForearmDeg = -155f;
+                break;
+            case IDLE_SIDE:
+            default:
+                // 双臂自然下垂
+                leftUpperDeg = -105f;
+                leftForearmDeg = -80f;
+                rightUpperDeg = -105f;
+                rightForearmDeg = -80f;
+                break;
+        }
+
+        // 叠加角度偏移（来自物理响应/个性化微调）
+        leftUpperDeg += state.leftArmAngleOffset;
+        rightUpperDeg += state.rightArmAngleOffset;
+
+        // 绘制左臂
+        drawSingleArm(canvas, -bodyMidHW, shoulderY,
+                leftUpperDeg, leftForearmDeg, false, state, glow);
+
+        // 绘制右臂
+        drawSingleArm(canvas, bodyMidHW, shoulderY,
+                rightUpperDeg, rightForearmDeg, true, state, glow);
     }
 
     /**
-     * 绘制左臂（自然下垂姿态，含肘部点缀和腕部护腕）
+     * 绘制单条手臂（上臂管 + 肘关节 + 前臂管 + 腕关节 + 手指）
      *
-     * 上臂向下偏左约 15°，前臂继续向下略向内弯曲。
+     * 通用手臂绘制方法，接受上臂和前臂的角度参数，
+     * 支持所有 9 种姿态的统一渲染。
      *
-     * @param canvas    画布
-     * @param shoulderX 肩膀关节 X（px）
-     * @param shoulderY 肩膀关节 Y（px）
-     * @param state     机器人状态
-     * @param glow      发光强度
+     * @param canvas      画布
+     * @param shoulderX   肩膀关节 X（px）
+     * @param shoulderY   肩膀关节 Y（px）
+     * @param upperDeg    上臂角度（度，0°=右水平）
+     * @param forearmDeg  前臂角度（度，相对于世界坐标）
+     * @param isRight     是否为右臂（影响手指展开方向）
+     * @param state       机器人状态
+     * @param glow        发光强度
      */
-    private void drawLeftArm(Canvas canvas, float shoulderX, float shoulderY,
-                             RobotState state, float glow) {
+    private void drawSingleArm(Canvas canvas, float shoulderX, float shoulderY,
+                                float upperDeg, float forearmDeg,
+                                boolean isRight, RobotState state, float glow) {
         canvas.save();
         canvas.translate(shoulderX, shoulderY);
 
-        // 上臂方向：向下偏左 15°
-        float upperAngle = (float) Math.toRadians(-105f); // -90(下) -15(左偏)
+        // 上臂
+        float upperAngle = (float) Math.toRadians(upperDeg);
         float upperLen = dp(ARM_UPPER_LEN);
         float elbowX = (float) Math.cos(upperAngle) * upperLen;
         float elbowY = (float) Math.sin(upperAngle) * upperLen;
@@ -960,15 +1185,15 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mStrokePaint);
 
-        // ---- 肘部青色点缀 ----
+        // 肘部青色点缀
         mDetailPaint.setStyle(Paint.Style.FILL);
         mDetailPaint.setColor(COLOR_EYE_CYAN);
         mDetailPaint.setShadowLayer(dp(3f), 0, 0, COLOR_EYE_CYAN);
         canvas.drawCircle(elbowX, elbowY, dp(2f), mDetailPaint);
         mDetailPaint.clearShadowLayer();
 
-        // 前臂方向：继续向下偏内 10°
-        float forearmAngle = (float) Math.toRadians(-80f);
+        // 前臂
+        float forearmAngle = (float) Math.toRadians(forearmDeg);
         float forearmLen = dp(ARM_FOREARM_LEN);
         float wristX = elbowX + (float) Math.cos(forearmAngle) * forearmLen;
         float wristY = elbowY + (float) Math.sin(forearmAngle) * forearmLen;
@@ -980,90 +1205,16 @@ public class CatRenderer {
         canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mDarkFillPaint);
         canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mStrokePaint);
 
-        // ---- 腕部护腕环：比手臂管略宽的深色描边圆环 ----
+        // 腕部护腕环
         drawWristCuff(canvas, wristX, wristY);
 
-        // 绘制手（手指散开）
-        drawHand(canvas, wristX, wristY, forearmAngle, false);
+        // 手（手指散开，挥手/鼓掌/上举时手指更张开）
+        boolean isWaving = (state.armPose == RobotState.ArmPose.WAVE && isRight)
+                || state.armPose == RobotState.ArmPose.BOTH_UP
+                || state.armPose == RobotState.ArmPose.CLAP;
+        drawHand(canvas, wristX, wristY, forearmAngle, isWaving);
 
         // 肩关节球（最后画以覆盖在管上方）
-        mDarkFillPaint.setColor(COLOR_JOINT);
-        canvas.drawCircle(0, 0, dp(JOINT_R), mDarkFillPaint);
-        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
-        canvas.drawCircle(0, 0, dp(JOINT_R), mStrokePaint);
-
-        canvas.restore();
-    }
-
-    /**
-     * 绘制右臂（举起挥手姿态，带摆动动画，含肘部点缀和腕部护腕）
-     *
-     * 上臂向上偏右约 45°，前臂向上再弯曲，手在最高点挥动。
-     * 利用 state.idleTimer 驱动细微的挥手摆动。
-     *
-     * @param canvas    画布
-     * @param shoulderX 肩膀关节 X（px）
-     * @param shoulderY 肩膀关节 Y（px）
-     * @param state     机器人状态
-     * @param glow      发光强度
-     */
-    private void drawRightArm(Canvas canvas, float shoulderX, float shoulderY,
-                              RobotState state, float glow) {
-        canvas.save();
-        canvas.translate(shoulderX, shoulderY);
-
-        // 挥手摆动动画：上臂角度随 idleTimer 微幅变化
-        float waveOsc = (float) Math.sin(state.idleTimer * 3.0) * 8f; // ±8° 摆动
-
-        // 上臂方向：向上偏右（约 -45° + 摆动）
-        float upperAngleDeg = -45f + waveOsc;
-        float upperAngle = (float) Math.toRadians(upperAngleDeg);
-        float upperLen = dp(ARM_UPPER_LEN);
-        float elbowX = (float) Math.cos(upperAngle) * upperLen;
-        float elbowY = (float) Math.sin(upperAngle) * upperLen;
-
-        // 绘制上臂管
-        drawArmTube(canvas, 0, 0, elbowX, elbowY, dp(ARM_TUBE_W));
-
-        // 肘关节球
-        mDarkFillPaint.setStyle(Paint.Style.FILL);
-        mDarkFillPaint.setColor(COLOR_JOINT);
-        mDarkFillPaint.clearShadowLayer();
-        canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mDarkFillPaint);
-        mStrokePaint.setStyle(Paint.Style.STROKE);
-        mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
-        mStrokePaint.setColor(COLOR_OUTLINE);
-        mStrokePaint.clearShadowLayer();
-        canvas.drawCircle(elbowX, elbowY, dp(JOINT_R), mStrokePaint);
-
-        // ---- 肘部青色点缀 ----
-        mDetailPaint.setStyle(Paint.Style.FILL);
-        mDetailPaint.setColor(COLOR_EYE_CYAN);
-        mDetailPaint.setShadowLayer(dp(3f), 0, 0, COLOR_EYE_CYAN);
-        canvas.drawCircle(elbowX, elbowY, dp(2f), mDetailPaint);
-        mDetailPaint.clearShadowLayer();
-
-        // 前臂方向：从肘部向上（约 -110° + 摆动的一半）
-        float forearmAngleDeg = -110f + waveOsc * 0.5f;
-        float forearmAngle = (float) Math.toRadians(forearmAngleDeg);
-        float forearmLen = dp(ARM_FOREARM_LEN);
-        float wristX = elbowX + (float) Math.cos(forearmAngle) * forearmLen;
-        float wristY = elbowY + (float) Math.sin(forearmAngle) * forearmLen;
-
-        // 绘制前臂管
-        drawArmTube(canvas, elbowX, elbowY, wristX, wristY, dp(ARM_TUBE_W) * 0.85f);
-
-        // 腕关节球
-        canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mDarkFillPaint);
-        canvas.drawCircle(wristX, wristY, dp(JOINT_R) * 0.85f, mStrokePaint);
-
-        // ---- 腕部护腕环 ----
-        drawWristCuff(canvas, wristX, wristY);
-
-        // 绘制手（张开的挥手姿势）
-        drawHand(canvas, wristX, wristY, forearmAngle, true);
-
-        // 肩关节球（最后画）
         mDarkFillPaint.setColor(COLOR_JOINT);
         canvas.drawCircle(0, 0, dp(JOINT_R), mDarkFillPaint);
         mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
@@ -1160,7 +1311,6 @@ public class CatRenderer {
         for (int i = 0; i < FINGER_COUNT; i++) {
             float angle = (float) Math.toRadians(startAngle + step * i);
 
-            // 手指管段
             canvas.save();
             canvas.rotate((float) Math.toDegrees(angle));
 
@@ -1221,7 +1371,6 @@ public class CatRenderer {
      *
      * 头部是机器人最大的部件，约占总高度 45%。
      * 使用高圆角使其接近圆形/椭圆形的可爱造型。
-     * 新增：头部左上方高光弧，增添立体光泽感。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1248,7 +1397,7 @@ public class CatRenderer {
         mStrokePaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, r, r, mStrokePaint);
 
-        // ---- 头部高光弧：左上方白色半透明弧线，模拟光照反射 ----
+        // 头部高光弧
         drawHeadHighlight(canvas, hw, hh, cy, r);
     }
 
@@ -1265,7 +1414,6 @@ public class CatRenderer {
      * @param r      头部圆角（px）
      */
     private void drawHeadHighlight(Canvas canvas, float hw, float hh, float cy, float r) {
-        // 在头部左上区域画一段弧线，模拟高光反射
         float arcCX = -hw * 0.35f;
         float arcCY = cy - hh * 0.35f;
         float arcR = r * 0.9f;
@@ -1273,7 +1421,7 @@ public class CatRenderer {
         mDetailPaint.setStyle(Paint.Style.STROKE);
         mDetailPaint.setStrokeWidth(dp(2.5f));
         mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
-        mDetailPaint.setColor(0x55FFFFFF); // 33% 透明白色
+        mDetailPaint.setColor(0x55FFFFFF);
         mDetailPaint.setShadowLayer(dp(2f), 0, 0, 0x33FFFFFF);
 
         mTempRect3.set(arcCX - arcR, arcCY - arcR, arcCX + arcR, arcCY + arcR);
@@ -1281,13 +1429,14 @@ public class CatRenderer {
         mDetailPaint.clearShadowLayer();
     }
 
-    // ==================== 天线 ====================
+    // ==================== 天线（增强：闪烁支持） ====================
 
     /**
-     * 绘制头部顶端的天线
+     * 绘制头部顶端的天线（增强版：支持闪烁和发光相位）
      *
      * 从头部正中顶部向上延伸的细深色线杆，顶端有一个带青色辉光的小圆球。
-     * 天线增加了机器人的科技感和辨识度。
+     * 当 state.antennaFlashing 为 true 时，球体在亮/暗间快速交替。
+     * 亮度由 state.antennaGlowPhase 的正弦值驱动。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1307,15 +1456,29 @@ public class CatRenderer {
         mDetailPaint.clearShadowLayer();
         canvas.drawLine(0, antennaBaseY, 0, antennaTipY, mDetailPaint);
 
-        // 天线顶部青色发光球
+        // 计算天线球体的发光强度
+        float antennaGlow;
+        if (state.antennaFlashing) {
+            // 闪烁模式：基于 antennaGlowPhase 的正弦在亮/暗间快速切换
+            float flashSin = (float) Math.sin(state.antennaGlowPhase);
+            // 将正弦值映射到 0.2~1.0 区间
+            antennaGlow = 0.2f + 0.8f * Math.max(0f, flashSin);
+        } else {
+            // 静态模式：正常稳定发光
+            antennaGlow = glow;
+        }
+
+        // 天线顶部发光球
+        int ballColor = state.antennaFlashing ? COLOR_EYE_CYAN : COLOR_EYE_CYAN;
+        int ballAlpha = (int) (antennaGlow * 255);
         mDetailPaint.setStyle(Paint.Style.FILL);
-        mDetailPaint.setColor(COLOR_EYE_CYAN);
-        mDetailPaint.setShadowLayer(dp(6f) * glow, 0, 0, COLOR_EYE_CYAN);
+        mDetailPaint.setColor(setAlpha(ballColor, ballAlpha));
+        mDetailPaint.setShadowLayer(dp(6f) * antennaGlow, 0, 0, COLOR_EYE_CYAN);
         canvas.drawCircle(0, antennaTipY, ballR, mDetailPaint);
         mDetailPaint.clearShadowLayer();
 
         // 球体高光（白色小点）
-        mDetailPaint.setColor(0xAAFFFFFF);
+        mDetailPaint.setColor(setAlpha(0xFFFFFFFF, (int) (antennaGlow * 170)));
         canvas.drawCircle(-ballR * 0.25f, antennaTipY - ballR * 0.25f,
                 ballR * 0.3f, mDetailPaint);
     }
@@ -1352,14 +1515,13 @@ public class CatRenderer {
         mDarkFillPaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, blockR, blockR, mDarkFillPaint);
 
-        // 深灰描边
         mStrokePaint.setStyle(Paint.Style.STROKE);
         mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
         mStrokePaint.setColor(COLOR_OUTLINE);
         mStrokePaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, blockR, blockR, mStrokePaint);
 
-        // 青色点缀线（垂直线在耳块中央）
+        // 青色点缀线
         mAccentPaint.setStyle(Paint.Style.STROKE);
         mAccentPaint.setStrokeWidth(dp(EAR_ACCENT_LINE_W));
         mAccentPaint.setColor(COLOR_EYE_CYAN);
@@ -1368,7 +1530,6 @@ public class CatRenderer {
         float lineX = leftBlockCX;
         canvas.drawLine(lineX, headCY - blockH * 0.3f, lineX, headCY + blockH * 0.3f,
                 mAccentPaint);
-
         canvas.restore();
 
         // 右耳块（镜像）
@@ -1381,11 +1542,9 @@ public class CatRenderer {
         canvas.drawRoundRect(mTempRect, blockR, blockR, mDarkFillPaint);
         canvas.drawRoundRect(mTempRect, blockR, blockR, mStrokePaint);
 
-        // 青色点缀线
         lineX = rightBlockCX;
         canvas.drawLine(lineX, headCY - blockH * 0.3f, lineX, headCY + blockH * 0.3f,
                 mAccentPaint);
-
         canvas.restore();
     }
 
@@ -1395,8 +1554,7 @@ public class CatRenderer {
      * 绘制面部深色面板（类似面罩/显示屏区域）
      *
      * 横跨头部中间的深色圆角矩形，作为眼睛的背景，
-     * 营造出机器人显示屏的视觉效果。
-     * 新增：内侧高光边框，增加面板深度感。
+     * 营造出机器人显示屏的视觉效果。含内侧高光边框增加深度感。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1417,14 +1575,14 @@ public class CatRenderer {
         mDarkFillPaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, panelR, panelR, mDarkFillPaint);
 
-        // 轻微的描边（比面板稍亮）
+        // 轻微的描边
         mStrokePaint.setStyle(Paint.Style.STROKE);
         mStrokePaint.setStrokeWidth(dp(STROKE_THIN));
         mStrokePaint.setColor(setAlpha(COLOR_OUTLINE, 0x88));
         mStrokePaint.clearShadowLayer();
         canvas.drawRoundRect(mTempRect, panelR, panelR, mStrokePaint);
 
-        // ---- 面板内高亮边框：1dp 内缩，更亮的灰色细线，营造凹陷深度感 ----
+        // 面板内高光边框
         float inset = dp(1f);
         mTempRect3.set(-panelW / 2f + inset, panelCY - panelH / 2f + inset,
                 panelW / 2f - inset, panelCY + panelH / 2f - inset);
@@ -1435,20 +1593,21 @@ public class CatRenderer {
         canvas.drawRoundRect(mTempRect3, panelR - inset, panelR - inset, mDetailPaint);
     }
 
-    // ==================== 眼睛 ====================
+    // ==================== 眼睛（增强：EyeSpecial 特效） ====================
 
     /**
-     * 绘制双眼（青色发光环 + 黑色瞳孔，支持追踪和表情变化）
+     * 绘制双眼（青色发光环 + 黑色瞳孔 + EyeSpecial 特效叠加）
      *
      * 每只眼睛由三层构成：
      * 1. 外部青色发光环（带 shadowLayer 辉光效果）
      * 2. 中间暗色圆（眼球底色）
      * 3. 内部黑色瞳孔（根据 eyePupilOffsetX/Y 偏移追踪）
      *
-     * 表情影响：
-     * - IDLE：正常大小，标准亮度
-     * - EXCITED：发光更强，轻微放大
-     * - SURPRISED：眼睛圆睁放大
+     * 在基础眼睛绘制之后，叠加 EyeSpecial 特效：
+     * - SPARKLE：瞳孔高光位置绘制 4 角十字星
+     * - DIZZY：螺旋旋转覆盖层
+     * - HEART：粉色心形替代瞳孔
+     * - SLEEPY：半闭效果 + "=" 线条
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1474,19 +1633,27 @@ public class CatRenderer {
                 break;
         }
 
+        float outerR = dp(EYE_OUTER_R) * eyeScaleMul;
+        float pupilR = dp(EYE_PUPIL_R) * eyeScaleMul;
+        float pOffX = dp(state.eyePupilOffsetX);
+        float pOffY = dp(state.eyePupilOffsetY);
+        float finalGlow = glow * glowMul;
+
         // 左眼
-        drawSingleEye(canvas, dp(EYE_L_CX), panelCY,
-                dp(EYE_OUTER_R) * eyeScaleMul,
-                dp(EYE_PUPIL_R) * eyeScaleMul,
-                dp(state.eyePupilOffsetX), dp(state.eyePupilOffsetY),
-                openness, glow * glowMul);
+        drawSingleEye(canvas, dp(EYE_L_CX), panelCY, outerR, pupilR,
+                pOffX, pOffY, openness, finalGlow);
 
         // 右眼
-        drawSingleEye(canvas, dp(EYE_R_CX), panelCY,
-                dp(EYE_OUTER_R) * eyeScaleMul,
-                dp(EYE_PUPIL_R) * eyeScaleMul,
-                dp(state.eyePupilOffsetX), dp(state.eyePupilOffsetY),
-                openness, glow * glowMul);
+        drawSingleEye(canvas, dp(EYE_R_CX), panelCY, outerR, pupilR,
+                pOffX, pOffY, openness, finalGlow);
+
+        // 叠加 EyeSpecial 特效（在两只眼睛上方绘制）
+        if (state.eyeSpecial != RobotState.EyeSpecial.NONE && state.eyeSpecialIntensity > 0.01f) {
+            drawEyeSpecialEffect(canvas, dp(EYE_L_CX), panelCY, outerR, pupilR,
+                    pOffX, pOffY, state);
+            drawEyeSpecialEffect(canvas, dp(EYE_R_CX), panelCY, outerR, pupilR,
+                    pOffX, pOffY, state);
+        }
     }
 
     /**
@@ -1521,22 +1688,22 @@ public class CatRenderer {
         canvas.save();
         canvas.scale(1f, openness, cx, cy);
 
-        // 第 1 层：青色发光环（外圆，带 shadowLayer 辉光）
+        // 第 1 层：青色发光环
         setupGlowPaint(mEyeGlowPaint, COLOR_EYE_CYAN, dp(EYE_GLOW_RING_W),
                 dp(12f) * glow);
         canvas.drawCircle(cx, cy, outerR, mEyeGlowPaint);
 
-        // 第 2 层：暗色眼球底色（填充内部）
+        // 第 2 层：暗色眼球底色
         mDarkFillPaint.setStyle(Paint.Style.FILL);
         mDarkFillPaint.setColor(COLOR_FACE_PANEL);
         mDarkFillPaint.clearShadowLayer();
         canvas.drawCircle(cx, cy, outerR - dp(EYE_GLOW_RING_W) / 2f, mDarkFillPaint);
 
-        // 第 3 层：内圈青色发光（比外环细，更紧密的光环）
+        // 第 3 层：内圈青色发光
         setupCorePaint(mEyeCorePaint, COLOR_EYE_CYAN, dp(1.5f), dp(6f) * glow);
         canvas.drawCircle(cx, cy, outerR - dp(EYE_GLOW_RING_W), mEyeCorePaint);
 
-        // 第 4 层：黑色瞳孔（偏移追踪）
+        // 第 4 层：黑色瞳孔
         float pcx = cx + pupilOffX;
         float pcy = cy + pupilOffY;
         mEyeCorePaint.setStyle(Paint.Style.FILL);
@@ -1544,7 +1711,7 @@ public class CatRenderer {
         mEyeCorePaint.clearShadowLayer();
         canvas.drawCircle(pcx, pcy, pupilR, mEyeCorePaint);
 
-        // 第 5 层：瞳孔高光点（小白点，增添灵动感）
+        // 第 5 层：瞳孔高光点
         float hlR = pupilR * 0.3f;
         mFillPaint.setStyle(Paint.Style.FILL);
         mFillPaint.setColor(COLOR_CORE);
@@ -1554,13 +1721,430 @@ public class CatRenderer {
         canvas.restore();
     }
 
+    /**
+     * 绘制单只眼睛上的 EyeSpecial 特效
+     *
+     * 根据 state.eyeSpecial 类型在眼睛上叠加不同的视觉效果。
+     * 特效强度由 state.eyeSpecialIntensity 控制透明度。
+     *
+     * @param canvas  画布
+     * @param cx      眼睛中心 X（px）
+     * @param cy      眼睛中心 Y（px）
+     * @param outerR  外环半径（px）
+     * @param pupilR  瞳孔半径（px）
+     * @param pOffX   瞳孔水平偏移（px）
+     * @param pOffY   瞳孔垂直偏移（px）
+     * @param state   机器人状态
+     */
+    private void drawEyeSpecialEffect(Canvas canvas, float cx, float cy,
+                                       float outerR, float pupilR,
+                                       float pOffX, float pOffY,
+                                       RobotState state) {
+        float intensity = state.eyeSpecialIntensity;
+        int alphaBase = (int) (intensity * 255);
+        // 瞳孔中心坐标
+        float pcx = cx + pOffX;
+        float pcy = cy + pOffY;
+
+        switch (state.eyeSpecial) {
+            case SPARKLE: {
+                // 闪烁星光：在瞳孔高光位置绘制 4 角十字星
+                float sparkleR = pupilR * 0.8f;
+                float hlX = pcx - pupilR * 0.2f;
+                float hlY = pcy - pupilR * 0.2f;
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(1.5f));
+                mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+                mDetailPaint.setColor(setAlpha(COLOR_CORE, alphaBase));
+                mDetailPaint.setShadowLayer(dp(4f), 0, 0, setAlpha(COLOR_CORE, alphaBase / 2));
+                // 水平线
+                canvas.drawLine(hlX - sparkleR, hlY, hlX + sparkleR, hlY, mDetailPaint);
+                // 垂直线
+                canvas.drawLine(hlX, hlY - sparkleR, hlX, hlY + sparkleR, mDetailPaint);
+                // 对角线（45° 旋转，较短）
+                float diagR = sparkleR * 0.6f;
+                canvas.drawLine(hlX - diagR, hlY - diagR, hlX + diagR, hlY + diagR, mDetailPaint);
+                canvas.drawLine(hlX + diagR, hlY - diagR, hlX - diagR, hlY + diagR, mDetailPaint);
+                mDetailPaint.clearShadowLayer();
+                break;
+            }
+            case DIZZY: {
+                // 晕眩螺旋：以瞳孔为中心绘制旋转的螺旋线
+                canvas.save();
+                // 基于 idleTimer 旋转螺旋
+                float rotAngle = state.idleTimer * 180f; // 每秒半圈
+                canvas.rotate(rotAngle, pcx, pcy);
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(1.5f));
+                mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+                mDetailPaint.setColor(setAlpha(COLOR_EYE_CYAN, alphaBase));
+                mDetailPaint.clearShadowLayer();
+                // 绘制 2 圈阿基米德螺旋（用短线段近似）
+                float spiralMaxR = outerR * 0.7f;
+                float prevSX = pcx;
+                float prevSY = pcy;
+                int spiralSegments = 24;
+                for (int i = 1; i <= spiralSegments; i++) {
+                    float t = (float) i / spiralSegments;
+                    float spiralAngle = t * (float) (Math.PI * 4); // 2 圈
+                    float spiralR = t * spiralMaxR;
+                    float sx = pcx + (float) Math.cos(spiralAngle) * spiralR;
+                    float sy = pcy + (float) Math.sin(spiralAngle) * spiralR;
+                    canvas.drawLine(prevSX, prevSY, sx, sy, mDetailPaint);
+                    prevSX = sx;
+                    prevSY = sy;
+                }
+                canvas.restore();
+                break;
+            }
+            case HEART: {
+                // 爱心瞳孔：在瞳孔位置绘制粉色心形
+                float heartSize = pupilR * 1.2f;
+                int heartColor = setAlpha(0xFFFF69B4, alphaBase); // 粉色
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(heartColor);
+                mDetailPaint.setShadowLayer(dp(3f), 0, 0, setAlpha(0xFFFF69B4, alphaBase / 2));
+                // 用 Path 构建心形
+                mTempPath.reset();
+                float hx = pcx;
+                float hy = pcy;
+                // 心形由两段贝塞尔曲线构成
+                mTempPath.moveTo(hx, hy + heartSize * 0.3f);
+                mTempPath.cubicTo(hx - heartSize, hy - heartSize * 0.3f,
+                        hx - heartSize * 0.5f, hy - heartSize,
+                        hx, hy - heartSize * 0.5f);
+                mTempPath.cubicTo(hx + heartSize * 0.5f, hy - heartSize,
+                        hx + heartSize, hy - heartSize * 0.3f,
+                        hx, hy + heartSize * 0.3f);
+                mTempPath.close();
+                canvas.drawPath(mTempPath, mDetailPaint);
+                mDetailPaint.clearShadowLayer();
+                break;
+            }
+            case SLEEPY: {
+                // 瞌睡半闭：在眼睛上半部分覆盖深色遮挡 + 绘制 "=" 线条
+                // 上半部分遮挡（模拟眼皮下垂）
+                float coverH = outerR * 0.6f * intensity;
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(setAlpha(COLOR_FACE_PANEL, alphaBase));
+                mDetailPaint.clearShadowLayer();
+                mTempRect2.set(cx - outerR, cy - outerR, cx + outerR, cy - outerR + coverH);
+                canvas.drawRect(mTempRect2, mDetailPaint);
+                // 绘制 "=" 线条（两条水平线）
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+                mDetailPaint.setColor(setAlpha(COLOR_EYE_CYAN, (int) (alphaBase * 0.7f)));
+                float lineW = outerR * 0.5f;
+                float lineY1 = cy - dp(2f);
+                float lineY2 = cy + dp(2f);
+                canvas.drawLine(cx - lineW, lineY1, cx + lineW, lineY1, mDetailPaint);
+                canvas.drawLine(cx - lineW, lineY2, cx + lineW, lineY2, mDetailPaint);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    // ==================== 眉毛（新增） ====================
+
+    /**
+     * 绘制双眉（6 种 EyebrowState 状态 + 角度微调 + 混合过渡）
+     *
+     * 眉毛绘制在面部面板上方，每条眉毛为一条带弧度的粗描边线。
+     * 位置：headCY + PANEL_OFFSET_Y - PANEL_H/2 - 5dp
+     *
+     * 状态效果：
+     * - NEUTRAL：水平略弯弧线
+     * - RAISED：位置上移，弧度更大
+     * - FURROWED：位置下移，内侧向下倾斜
+     * - ONE_UP：左侧正常，右侧上扬（或反向，由 blend 控制）
+     * - SAD：外侧下垂呈八字形
+     * - ANGRY：尖锐 V 形，粗描边
+     *
+     * @param canvas 画布
+     * @param state  机器人状态
+     * @param glow   发光强度
+     */
+    private void drawEyebrows(Canvas canvas, RobotState state, float glow) {
+        float panelCY = dp(HEAD_CY) + dp(PANEL_OFFSET_Y);
+        float panelHalfH = dp(PANEL_H) / 2f;
+        // 眉毛基准 Y：面板上边缘上方 5dp
+        float baseY = panelCY - panelHalfH - dp(5f);
+        // 眉毛 X 范围（与眼睛对齐）
+        float leftCX = dp(EYE_L_CX);  // 左眉中心
+        float rightCX = dp(EYE_R_CX); // 右眉中心
+        float browHalfW = dp(18f);    // 眉毛半宽
+
+        // 状态混合因子
+        float blend = Math.max(0f, Math.min(1f, state.eyebrowBlend));
+
+        // 根据状态确定左右眉的角度和 Y 偏移
+        float leftAngle = 0f;   // 左眉旋转角度（度，正值=外侧上扬）
+        float rightAngle = 0f;
+        float yOffset = 0f;     // Y 偏移（负值=上移）
+        float strokeW = dp(2.5f);
+        float arcHeight = dp(3f); // 弧度高度
+
+        switch (state.eyebrowState) {
+            case RAISED:
+                yOffset = -dp(4f) * blend;
+                arcHeight = dp(5f);
+                leftAngle = -3f * blend;
+                rightAngle = 3f * blend;
+                break;
+            case FURROWED:
+                yOffset = dp(2f) * blend;
+                // 内侧下压：左眉右端下移（负角度），右眉左端下移（正角度）
+                leftAngle = 8f * blend;
+                rightAngle = -8f * blend;
+                arcHeight = dp(1f);
+                break;
+            case ONE_UP:
+                // 左侧正常，右侧上扬
+                leftAngle = 0f;
+                rightAngle = 10f * blend;
+                yOffset = 0f;
+                break;
+            case SAD:
+                // 外侧下垂：八字形
+                leftAngle = -10f * blend;
+                rightAngle = 10f * blend;
+                yOffset = dp(1f) * blend;
+                arcHeight = dp(2f);
+                break;
+            case ANGRY:
+                // V 形：内侧高外侧低
+                leftAngle = 12f * blend;
+                rightAngle = -12f * blend;
+                yOffset = dp(2f) * blend;
+                strokeW = dp(3.5f);
+                arcHeight = dp(1f);
+                break;
+            case NEUTRAL:
+            default:
+                leftAngle = 0f;
+                rightAngle = 0f;
+                yOffset = 0f;
+                arcHeight = dp(3f);
+                break;
+        }
+
+        // 叠加角度微调
+        leftAngle += state.leftEyebrowAngle;
+        rightAngle += state.rightEyebrowAngle;
+
+        // 绘制配置
+        mDetailPaint.setStyle(Paint.Style.STROKE);
+        mDetailPaint.setStrokeWidth(strokeW);
+        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        mDetailPaint.setColor(COLOR_BODY_WHITE);
+        mDetailPaint.setShadowLayer(dp(2f), 0, 0, 0x44FFFFFF);
+
+        // 左眉
+        canvas.save();
+        canvas.rotate(leftAngle, leftCX, baseY + yOffset);
+        mTempPath.reset();
+        mTempPath.moveTo(leftCX - browHalfW, baseY + yOffset);
+        mTempPath.quadTo(leftCX, baseY + yOffset - arcHeight, leftCX + browHalfW, baseY + yOffset);
+        canvas.drawPath(mTempPath, mDetailPaint);
+        canvas.restore();
+
+        // 右眉
+        canvas.save();
+        canvas.rotate(rightAngle, rightCX, baseY + yOffset);
+        mTempPath.reset();
+        mTempPath.moveTo(rightCX - browHalfW, baseY + yOffset);
+        mTempPath.quadTo(rightCX, baseY + yOffset - arcHeight, rightCX + browHalfW, baseY + yOffset);
+        canvas.drawPath(mTempPath, mDetailPaint);
+        canvas.restore();
+
+        mDetailPaint.clearShadowLayer();
+    }
+
+    // ==================== 嘴巴（新增） ====================
+
+    /**
+     * 绘制嘴巴（7 种 MouthShape + mouthBlend + mouthOpenness + TTS 同步）
+     *
+     * 嘴巴绘制在面部面板下方，位置：headCY + PANEL_OFFSET_Y + PANEL_H/2 * 0.7
+     *
+     * 形状定义：
+     * - NEUTRAL：10dp 宽水平短线
+     * - SMILE：向上弯曲的弧线（三次贝塞尔）
+     * - WIDE_SMILE：更宽的上弯弧 + 白色填充
+     * - OPEN_O：圆形（半径 = mouthOpenness * 8dp）
+     * - OPEN_D：半圆形（平顶圆底）
+     * - FLAT：比 NEUTRAL 稍宽的水平线
+     * - WAVY：正弦波路径（约 3 个周期）
+     *
+     * mouthOpenness 影响 OPEN_O 和 OPEN_D 的张开程度，也受 ttsAmplitude 影响。
+     *
+     * @param canvas 画布
+     * @param state  机器人状态
+     * @param glow   发光强度
+     */
+    private void drawMouth(Canvas canvas, RobotState state, float glow) {
+        float panelCY = dp(HEAD_CY) + dp(PANEL_OFFSET_Y);
+        float panelHalfH = dp(PANEL_H) / 2f;
+        // 嘴巴 Y 位置：面板下方 70%
+        float mouthY = panelCY + panelHalfH * 0.7f;
+        float mouthCX = 0f;
+
+        // 实际张开度：mouthOpenness 和 ttsAmplitude 取较大值
+        float openness = Math.max(state.mouthOpenness, state.ttsAmplitude * 0.8f);
+
+        mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+        mDetailPaint.clearShadowLayer();
+
+        switch (state.mouthShape) {
+            case SMILE: {
+                // 微笑：向上弯曲弧线
+                float smileW = dp(16f);
+                float smileH = dp(6f);
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setColor(COLOR_EYE_CYAN);
+                mDetailPaint.setShadowLayer(dp(3f) * glow, 0, 0, COLOR_EYE_CYAN);
+                mTempPath.reset();
+                mTempPath.moveTo(mouthCX - smileW / 2f, mouthY);
+                mTempPath.cubicTo(mouthCX - smileW / 4f, mouthY + smileH,
+                        mouthCX + smileW / 4f, mouthY + smileH,
+                        mouthCX + smileW / 2f, mouthY);
+                canvas.drawPath(mTempPath, mDetailPaint);
+                mDetailPaint.clearShadowLayer();
+                break;
+            }
+            case WIDE_SMILE: {
+                // 大笑：更宽弧线 + 白色半透明填充
+                float wideW = dp(24f);
+                float wideH = dp(10f);
+                // 填充
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(0x44FFFFFF);
+                mTempPath.reset();
+                mTempPath.moveTo(mouthCX - wideW / 2f, mouthY);
+                mTempPath.cubicTo(mouthCX - wideW / 4f, mouthY + wideH,
+                        mouthCX + wideW / 4f, mouthY + wideH,
+                        mouthCX + wideW / 2f, mouthY);
+                mTempPath.close();
+                canvas.drawPath(mTempPath, mDetailPaint);
+                // 描边
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setColor(COLOR_EYE_CYAN);
+                mDetailPaint.setShadowLayer(dp(4f) * glow, 0, 0, COLOR_EYE_CYAN);
+                mTempPath.reset();
+                mTempPath.moveTo(mouthCX - wideW / 2f, mouthY);
+                mTempPath.cubicTo(mouthCX - wideW / 4f, mouthY + wideH,
+                        mouthCX + wideW / 4f, mouthY + wideH,
+                        mouthCX + wideW / 2f, mouthY);
+                canvas.drawPath(mTempPath, mDetailPaint);
+                mDetailPaint.clearShadowLayer();
+                break;
+            }
+            case OPEN_O: {
+                // O 型：圆形，半径由 openness 控制
+                float oRadius = Math.max(dp(2f), openness * dp(8f));
+                // 外环
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setColor(COLOR_EYE_CYAN);
+                mDetailPaint.setShadowLayer(dp(3f) * glow, 0, 0, COLOR_EYE_CYAN);
+                canvas.drawCircle(mouthCX, mouthY, oRadius, mDetailPaint);
+                // 内部暗色填充
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(setAlpha(COLOR_FACE_PANEL, 0xCC));
+                mDetailPaint.clearShadowLayer();
+                canvas.drawCircle(mouthCX, mouthY, oRadius - dp(1f), mDetailPaint);
+                break;
+            }
+            case OPEN_D: {
+                // D 型：平顶半圆（上边水平直线，下边半圆弧）
+                float dWidth = dp(18f);
+                float dHeight = Math.max(dp(2f), openness * dp(10f));
+                // 构建 D 形 Path
+                mTempPath.reset();
+                mTempPath.moveTo(mouthCX - dWidth / 2f, mouthY);
+                mTempPath.lineTo(mouthCX + dWidth / 2f, mouthY);
+                // 下半圆弧
+                mTempRect2.set(mouthCX - dWidth / 2f, mouthY, mouthCX + dWidth / 2f, mouthY + dHeight * 2f);
+                mTempPath.arcTo(mTempRect2, 0f, 180f);
+                mTempPath.close();
+                // 暗色填充
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(setAlpha(COLOR_FACE_PANEL, 0xCC));
+                mDetailPaint.clearShadowLayer();
+                canvas.drawPath(mTempPath, mDetailPaint);
+                // 描边
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setColor(COLOR_EYE_CYAN);
+                mDetailPaint.setShadowLayer(dp(3f) * glow, 0, 0, COLOR_EYE_CYAN);
+                canvas.drawPath(mTempPath, mDetailPaint);
+                mDetailPaint.clearShadowLayer();
+                break;
+            }
+            case FLAT: {
+                // 扁嘴：水平直线，比 NEUTRAL 稍宽
+                float flatW = dp(14f);
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setColor(COLOR_EYE_CYAN);
+                mDetailPaint.setShadowLayer(dp(2f) * glow, 0, 0, COLOR_EYE_CYAN);
+                canvas.drawLine(mouthCX - flatW / 2f, mouthY, mouthCX + flatW / 2f, mouthY,
+                        mDetailPaint);
+                mDetailPaint.clearShadowLayer();
+                break;
+            }
+            case WAVY: {
+                // 波浪：正弦波路径，约 3 个周期
+                float wavyW = dp(20f);
+                float wavyAmp = dp(3f);
+                int segments = 30;
+                mTempPath.reset();
+                for (int i = 0; i <= segments; i++) {
+                    float t = (float) i / segments;
+                    float x = mouthCX - wavyW / 2f + t * wavyW;
+                    float y = mouthY + wavyAmp * (float) Math.sin(t * Math.PI * 6); // 3 周期
+                    if (i == 0) {
+                        mTempPath.moveTo(x, y);
+                    } else {
+                        mTempPath.lineTo(x, y);
+                    }
+                }
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setColor(COLOR_EYE_CYAN);
+                mDetailPaint.setShadowLayer(dp(2f) * glow, 0, 0, COLOR_EYE_CYAN);
+                canvas.drawPath(mTempPath, mDetailPaint);
+                mDetailPaint.clearShadowLayer();
+                break;
+            }
+            case NEUTRAL:
+            default: {
+                // 中性：10dp 宽水平短线
+                float neutralW = dp(10f);
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setColor(COLOR_EYE_CYAN);
+                mDetailPaint.setShadowLayer(dp(2f) * glow, 0, 0, COLOR_EYE_CYAN);
+                canvas.drawLine(mouthCX - neutralW / 2f, mouthY,
+                        mouthCX + neutralW / 2f, mouthY, mDetailPaint);
+                mDetailPaint.clearShadowLayer();
+                break;
+            }
+        }
+    }
+
     // ==================== 额头装饰 ====================
 
     /**
      * 绘制额头上的三个小圆点装饰（三角形排列）
      *
      * 类似传感器/指示灯，位于头部上方区域，增加机器人的科技感细节。
-     * 从原来的两个点改为三角形排列的三个点（上方中间一个 + 下方左右各一个）。
+     * 三角形排列：上方中间一个 + 下方左右各一个。
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1595,13 +2179,17 @@ public class CatRenderer {
         canvas.drawCircle(0, topDotY, dotR, mStrokePaint);
     }
 
-    // ==================== 面板指示灯 ====================
+    // ==================== 指示灯（增强：5 种 IndicatorState） ====================
 
     /**
-     * 绘制面部面板上的两个微型指示灯
+     * 绘制面部面板上的两个微型指示灯（支持 5 种 IndicatorState）
      *
-     * 在面部面板下方（眼睛下方）绘制两个小发光圆点，
-     * 左侧绿色、右侧琥珀色，模拟状态指示灯，增加科技感。
+     * 在面部面板下方绘制两个小发光圆点，状态不同时显示效果各异：
+     * - NORMAL：左绿右琥珀，静态发光
+     * - BREATHING：双灯缓慢脉冲透明度
+     * - WARNING：双灯琥珀色闪烁
+     * - ERROR：双灯红色快速闪烁
+     * - AI_ACTIVE：双灯青色脉冲（与 AI 阶段同步）
      *
      * @param canvas 画布
      * @param state  机器人状态
@@ -1610,22 +2198,376 @@ public class CatRenderer {
     private void drawIndicatorLights(Canvas canvas, RobotState state, float glow) {
         float panelCY = dp(HEAD_CY) + dp(PANEL_OFFSET_Y);
         float panelHalfH = dp(PANEL_H) / 2f;
-        // 指示灯位于面板下方 65% 处
         float indicatorY = panelCY + panelHalfH * 0.65f;
         float indicatorR = dp(2f);
         float indicatorSpacing = dp(15f);
 
-        // 左侧绿色指示灯
+        int leftColor;
+        int rightColor;
+        float leftAlpha;
+        float rightAlpha;
+
+        switch (state.indicatorState) {
+            case BREATHING: {
+                // 呼吸模式：双灯缓慢脉冲
+                float breathPhase = 0.5f + 0.5f * (float) Math.sin(state.idleTimer * 1.5);
+                leftColor = COLOR_INDICATOR_GREEN;
+                rightColor = COLOR_INDICATOR_AMBER;
+                leftAlpha = breathPhase;
+                rightAlpha = breathPhase;
+                break;
+            }
+            case WARNING: {
+                // 警告：双灯琥珀色闪烁（约 2Hz）
+                float warnBlink = (float) Math.sin(state.idleTimer * 4.0 * Math.PI) > 0 ? 1f : 0.2f;
+                leftColor = COLOR_INDICATOR_AMBER;
+                rightColor = COLOR_INDICATOR_AMBER;
+                leftAlpha = warnBlink;
+                rightAlpha = warnBlink;
+                break;
+            }
+            case ERROR: {
+                // 错误：双灯红色快速闪烁（约 4Hz）
+                float errBlink = (float) Math.sin(state.idleTimer * 8.0 * Math.PI) > 0 ? 1f : 0.1f;
+                int redColor = 0xFFFF3333;
+                leftColor = redColor;
+                rightColor = redColor;
+                leftAlpha = errBlink;
+                rightAlpha = errBlink;
+                break;
+            }
+            case AI_ACTIVE: {
+                // AI 活跃：青色脉冲
+                float aiPulse = 0.4f + 0.6f * (float) Math.sin(state.idleTimer * 3.0);
+                leftColor = COLOR_EYE_CYAN;
+                rightColor = COLOR_EYE_CYAN;
+                leftAlpha = aiPulse;
+                rightAlpha = aiPulse;
+                break;
+            }
+            case NORMAL:
+            default:
+                // 正常：左绿右琥珀，静态
+                leftColor = COLOR_INDICATOR_GREEN;
+                rightColor = COLOR_INDICATOR_AMBER;
+                leftAlpha = 1f;
+                rightAlpha = 1f;
+                break;
+        }
+
+        // 左侧指示灯
         mDetailPaint.setStyle(Paint.Style.FILL);
-        mDetailPaint.setColor(COLOR_INDICATOR_GREEN);
-        mDetailPaint.setShadowLayer(dp(4f) * glow, 0, 0, COLOR_INDICATOR_GREEN);
+        mDetailPaint.setColor(setAlpha(leftColor, (int) (leftAlpha * 255)));
+        mDetailPaint.setShadowLayer(dp(4f) * glow * leftAlpha, 0, 0, leftColor);
         canvas.drawCircle(-indicatorSpacing, indicatorY, indicatorR, mDetailPaint);
 
-        // 右侧琥珀色指示灯
-        mDetailPaint.setColor(COLOR_INDICATOR_AMBER);
-        mDetailPaint.setShadowLayer(dp(4f) * glow, 0, 0, COLOR_INDICATOR_AMBER);
+        // 右侧指示灯
+        mDetailPaint.setColor(setAlpha(rightColor, (int) (rightAlpha * 255)));
+        mDetailPaint.setShadowLayer(dp(4f) * glow * rightAlpha, 0, 0, rightColor);
         canvas.drawCircle(indicatorSpacing, indicatorY, indicatorR, mDetailPaint);
         mDetailPaint.clearShadowLayer();
+    }
+
+    // ==================== 思维气泡（新增） ====================
+
+    /**
+     * 绘制思维气泡（10 种 ThoughtBubbleType + 透明度 + 动画进度）
+     *
+     * 气泡位于头部右上方（headCX + HEAD_W/2 * 0.6, headCY - HEAD_H/2 * 0.4）。
+     * 由主椭圆 + 2 个小尾随圆组成云状外形。
+     *
+     * 内容根据 type 变化：
+     * - DOTS：3 个跳动圆点
+     * - QUESTION："?" 文字
+     * - EXCLAMATION："!" 文字
+     * - HEART_BUBBLE：粉色心形
+     * - MUSIC_NOTE："♪" 文字
+     * - ZZZ："Zzz" 文字
+     * - SWEAT：蓝色水滴
+     * - ANGRY_MARK："×" 标记
+     * - SPARKLE_BURST：星形爆发
+     * - LOADING：旋转弧线
+     *
+     * @param canvas 画布
+     * @param state  机器人状态
+     * @param glow   发光强度
+     */
+    private void drawThoughtBubble(Canvas canvas, RobotState state, float glow) {
+        // NONE 类型或透明度为零时不绘制
+        if (state.thoughtBubbleType == RobotState.ThoughtBubbleType.NONE
+                || state.thoughtBubbleAlpha < 0.01f) {
+            return;
+        }
+
+        float alpha = state.thoughtBubbleAlpha;
+        float progress = state.thoughtBubbleProgress;
+        int alphaInt = (int) (alpha * 255);
+
+        // 气泡位置：头部右上方
+        float headCX = 0f;
+        float headCY = dp(HEAD_CY);
+        float headHW = dp(HEAD_W) / 2f;
+        float headHH = dp(HEAD_H) / 2f;
+
+        float bubbleCX = headCX + headHW * 0.6f;
+        float bubbleCY = headCY - headHH * 0.4f;
+
+        // 主气泡尺寸
+        float bubbleW = dp(40f);
+        float bubbleH = dp(30f);
+
+        // 绘制尾随小圆（从头部到气泡的过渡）
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(setAlpha(COLOR_CORE, (int) (alphaInt * 0.9f)));
+        mDetailPaint.clearShadowLayer();
+        // 小圆 1（靠近头部）
+        float trail1X = headCX + headHW * 0.3f;
+        float trail1Y = headCY - headHH * 0.15f;
+        canvas.drawCircle(trail1X, trail1Y, dp(3f), mDetailPaint);
+        // 小圆 2（中间）
+        float trail2X = headCX + headHW * 0.45f;
+        float trail2Y = headCY - headHH * 0.28f;
+        canvas.drawCircle(trail2X, trail2Y, dp(5f), mDetailPaint);
+
+        // 主气泡椭圆
+        mDetailPaint.setColor(setAlpha(COLOR_CORE, alphaInt));
+        mTempRect.set(bubbleCX - bubbleW / 2f, bubbleCY - bubbleH / 2f,
+                bubbleCX + bubbleW / 2f, bubbleCY + bubbleH / 2f);
+        canvas.drawRoundRect(mTempRect, bubbleH / 2f, bubbleH / 2f, mDetailPaint);
+
+        // 气泡描边
+        mStrokePaint.setStyle(Paint.Style.STROKE);
+        mStrokePaint.setStrokeWidth(dp(1f));
+        mStrokePaint.setColor(setAlpha(COLOR_OUTLINE, (int) (alphaInt * 0.5f)));
+        mStrokePaint.clearShadowLayer();
+        canvas.drawRoundRect(mTempRect, bubbleH / 2f, bubbleH / 2f, mStrokePaint);
+
+        // 绘制气泡内容
+        drawThoughtBubbleContent(canvas, bubbleCX, bubbleCY, bubbleW, bubbleH,
+                state.thoughtBubbleType, progress, alphaInt, state);
+    }
+
+    /**
+     * 绘制思维气泡内部内容
+     *
+     * 根据气泡类型在主气泡椭圆内绘制对应的图标或文字。
+     *
+     * @param canvas   画布
+     * @param cx       气泡中心 X（px）
+     * @param cy       气泡中心 Y（px）
+     * @param w        气泡宽度（px）
+     * @param h        气泡高度（px）
+     * @param type     气泡内容类型
+     * @param progress 动画进度 [0,1]
+     * @param alphaInt 透明度 [0,255]
+     * @param state    机器人状态（获取 idleTimer）
+     */
+    private void drawThoughtBubbleContent(Canvas canvas, float cx, float cy,
+                                           float w, float h,
+                                           RobotState.ThoughtBubbleType type,
+                                           float progress, int alphaInt,
+                                           RobotState state) {
+        mDetailPaint.clearShadowLayer();
+
+        switch (type) {
+            case DOTS: {
+                // 3 个跳动圆点，根据 progress 产生错位的上下弹跳
+                float dotR = dp(3f);
+                float dotSpacing = dp(8f);
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(setAlpha(COLOR_JOINT, alphaInt));
+                for (int i = 0; i < 3; i++) {
+                    float dx = (i - 1) * dotSpacing;
+                    // 每个点的弹跳相位错开 0.33
+                    float bounce = (float) Math.abs(Math.sin((progress + i * 0.33f) * Math.PI * 2));
+                    float dy = -bounce * dp(5f);
+                    canvas.drawCircle(cx + dx, cy + dy, dotR, mDetailPaint);
+                }
+                break;
+            }
+            case QUESTION: {
+                // "?" 字符
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(setAlpha(COLOR_JOINT, alphaInt));
+                mDetailPaint.setTextSize(dp(18f));
+                mDetailPaint.setTextAlign(Paint.Align.CENTER);
+                canvas.drawText("?", cx, cy + dp(6f), mDetailPaint);
+                break;
+            }
+            case EXCLAMATION: {
+                // "!" 字符
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(setAlpha(0xFFFF6600, alphaInt));
+                mDetailPaint.setTextSize(dp(18f));
+                mDetailPaint.setTextAlign(Paint.Align.CENTER);
+                canvas.drawText("!", cx, cy + dp(6f), mDetailPaint);
+                break;
+            }
+            case HEART_BUBBLE: {
+                // 粉色小心形
+                float heartS = dp(8f);
+                int heartPink = setAlpha(0xFFFF69B4, alphaInt);
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(heartPink);
+                mTempPath.reset();
+                mTempPath.moveTo(cx, cy + heartS * 0.3f);
+                mTempPath.cubicTo(cx - heartS, cy - heartS * 0.3f,
+                        cx - heartS * 0.5f, cy - heartS,
+                        cx, cy - heartS * 0.4f);
+                mTempPath.cubicTo(cx + heartS * 0.5f, cy - heartS,
+                        cx + heartS, cy - heartS * 0.3f,
+                        cx, cy + heartS * 0.3f);
+                mTempPath.close();
+                canvas.drawPath(mTempPath, mDetailPaint);
+                break;
+            }
+            case MUSIC_NOTE: {
+                // 音符符号 "♪"
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(setAlpha(COLOR_EYE_CYAN, alphaInt));
+                mDetailPaint.setTextSize(dp(16f));
+                mDetailPaint.setTextAlign(Paint.Align.CENTER);
+                // 音符随 progress 轻微上下浮动
+                float noteY = cy + dp(5f) - (float) Math.sin(progress * Math.PI * 2) * dp(3f);
+                canvas.drawText("\u266A", cx, noteY, mDetailPaint);
+                break;
+            }
+            case ZZZ: {
+                // "Zzz" 瞌睡符号，从小到大排列
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(setAlpha(COLOR_EYE_CYAN, alphaInt));
+                mDetailPaint.setTextAlign(Paint.Align.CENTER);
+                mDetailPaint.setTextSize(dp(8f));
+                canvas.drawText("z", cx - dp(6f), cy + dp(4f), mDetailPaint);
+                mDetailPaint.setTextSize(dp(11f));
+                canvas.drawText("z", cx, cy - dp(1f), mDetailPaint);
+                mDetailPaint.setTextSize(dp(14f));
+                canvas.drawText("Z", cx + dp(6f), cy - dp(6f), mDetailPaint);
+                break;
+            }
+            case SWEAT: {
+                // 蓝色水滴
+                float dropH = dp(10f);
+                float dropW = dp(6f);
+                int blueColor = setAlpha(0xFF4488FF, alphaInt);
+                mDetailPaint.setStyle(Paint.Style.FILL);
+                mDetailPaint.setColor(blueColor);
+                // 水滴形状：上尖下圆
+                mTempPath.reset();
+                mTempPath.moveTo(cx, cy - dropH / 2f);
+                mTempPath.quadTo(cx + dropW / 2f, cy, cx + dropW / 3f, cy + dropH / 3f);
+                mTempPath.arcTo(new RectF(cx - dropW / 3f, cy, cx + dropW / 3f, cy + dropH / 2f),
+                        0f, 180f);
+                mTempPath.quadTo(cx - dropW / 2f, cy, cx, cy - dropH / 2f);
+                mTempPath.close();
+                canvas.drawPath(mTempPath, mDetailPaint);
+                break;
+            }
+            case ANGRY_MARK: {
+                // 井字怒气标记（简化为 × 交叉）
+                float markR = dp(7f);
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2.5f));
+                mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+                mDetailPaint.setColor(setAlpha(0xFFFF4444, alphaInt));
+                canvas.drawLine(cx - markR, cy - markR, cx + markR, cy + markR, mDetailPaint);
+                canvas.drawLine(cx + markR, cy - markR, cx - markR, cy + markR, mDetailPaint);
+                break;
+            }
+            case SPARKLE_BURST: {
+                // 星形爆发：从中心向外的 6 条射线
+                float rayLen = dp(8f);
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(1.5f));
+                mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+                mDetailPaint.setColor(setAlpha(0xFFFFDD00, alphaInt));
+                for (int i = 0; i < 6; i++) {
+                    float angle = (float) (i * Math.PI / 3.0 + progress * Math.PI * 2);
+                    float innerR = dp(2f);
+                    float x1 = cx + (float) Math.cos(angle) * innerR;
+                    float y1 = cy + (float) Math.sin(angle) * innerR;
+                    float x2 = cx + (float) Math.cos(angle) * rayLen;
+                    float y2 = cy + (float) Math.sin(angle) * rayLen;
+                    canvas.drawLine(x1, y1, x2, y2, mDetailPaint);
+                }
+                break;
+            }
+            case LOADING: {
+                // 旋转加载弧线
+                float loadR = dp(8f);
+                mTempRect2.set(cx - loadR, cy - loadR, cx + loadR, cy + loadR);
+                mDetailPaint.setStyle(Paint.Style.STROKE);
+                mDetailPaint.setStrokeWidth(dp(2f));
+                mDetailPaint.setStrokeCap(Paint.Cap.ROUND);
+                mDetailPaint.setColor(setAlpha(COLOR_EYE_CYAN, alphaInt));
+                // 起始角度随 progress 旋转
+                float startAngle = progress * 360f;
+                canvas.drawArc(mTempRect2, startAngle, 270f, false, mDetailPaint);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    // ==================== 脸颊红晕（新增） ====================
+
+    /**
+     * 绘制脸颊红晕效果
+     *
+     * 当 AI 情感为 SHY 或 aiEmotionIntensity > 0 且情感适合时，
+     * 在面部面板两侧下方绘制半透明粉色圆形，模拟脸红效果。
+     *
+     * 位置：面部面板下缘左右各 ±45dp 处。
+     * 透明度由 aiEmotionIntensity 控制，仅在 SHY/HAPPY/EXCITED 情感下显示。
+     *
+     * @param canvas 画布
+     * @param state  机器人状态
+     * @param glow   发光强度
+     */
+    private void drawCheekBlush(Canvas canvas, RobotState state, float glow) {
+        // 仅在特定情感下显示腮红
+        boolean showBlush = false;
+        float blushAlpha = 0f;
+        switch (state.aiEmotion) {
+            case SHY:
+                showBlush = true;
+                blushAlpha = state.aiEmotionIntensity * 0.6f;
+                break;
+            case HAPPY:
+                showBlush = true;
+                blushAlpha = state.aiEmotionIntensity * 0.3f;
+                break;
+            case EXCITED:
+                showBlush = true;
+                blushAlpha = state.aiEmotionIntensity * 0.25f;
+                break;
+            default:
+                break;
+        }
+
+        if (!showBlush || blushAlpha < 0.01f) {
+            return;
+        }
+
+        float panelCY = dp(HEAD_CY) + dp(PANEL_OFFSET_Y);
+        float panelHalfH = dp(PANEL_H) / 2f;
+        // 腮红位置：面板下缘
+        float blushY = panelCY + panelHalfH * 0.5f;
+        float blushX = dp(45f);
+        float blushR = dp(12f);
+
+        int pinkColor = 0xFFFF8FAA; // 粉色
+        int blushAlphaInt = (int) (blushAlpha * 255);
+
+        mDetailPaint.setStyle(Paint.Style.FILL);
+        mDetailPaint.setColor(setAlpha(pinkColor, blushAlphaInt));
+        mDetailPaint.clearShadowLayer();
+
+        // 左脸颊
+        canvas.drawCircle(-blushX, blushY, blushR, mDetailPaint);
+        // 右脸颊
+        canvas.drawCircle(blushX, blushY, blushR, mDetailPaint);
     }
 
     // ==================== 工具方法 ====================

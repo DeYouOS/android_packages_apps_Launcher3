@@ -1,10 +1,16 @@
 package com.android.launcher3.robot;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Bundle;
 import android.view.Display;
 import android.view.Surface;
 import android.view.WindowManager;
@@ -13,6 +19,7 @@ import android.view.WindowManager;
  * 车载传感器管理器（单例）
  *
  * 传感器数据处理管线：加速度计 + 陀螺仪 → 低通滤波 → 互补滤波 → 死区过滤 → CarMotionState
+ * GPS 数据管线：LocationManager → 速度/航向/加速度 → 融合到 CarMotionState
  *
  * 设计要点：
  * - 采样率：SENSOR_DELAY_GAME（约 50Hz），兼顾精度与功耗
@@ -63,6 +70,12 @@ public class CarSensorManager implements SensorEventListener {
     /** 窗口管理器，用于获取屏幕旋转状态 */
     private final WindowManager mWindowManager;
 
+    /** GPS 定位管理器，用于获取实时位置和速度 */
+    private final LocationManager mLocationManager;
+
+    /** 应用上下文引用，用于权限检查 */
+    private final Context mAppContext;
+
     /** 加速度计传感器 */
     private final Sensor mAccelerometer;
 
@@ -77,6 +90,29 @@ public class CarSensorManager implements SensorEventListener {
 
     /** 传感器监听是否已注册 */
     private boolean mIsRunning = false;
+
+    // ---- GPS 相关状态 ----
+
+    /** GPS 位置更新监听器 */
+    private LocationListener mLocationListener;
+
+    /** 当前 GPS 速度（km/h），volatile 保证跨线程可见性 */
+    private volatile float mCurrentSpeedKmh = 0f;
+
+    /** 当前 GPS 航向角（度），[0, 360) */
+    private volatile float mCurrentBearing = 0f;
+
+    /** GPS 信号是否可用 */
+    private volatile boolean mGpsAvailable = false;
+
+    /** 上一次的 GPS 速度（km/h），用于计算速度变化率 */
+    private float mPrevSpeedKmh = 0f;
+
+    /** 上一次 GPS 速度更新的时间戳（毫秒） */
+    private long mLastSpeedTimestamp = 0;
+
+    /** 基于 GPS 速度差分的加速度（km/h/s），正值加速，负值减速 */
+    private volatile float mSpeedAcceleration = 0f;
 
     // ---- 低通滤波状态 ----
     /** 低通滤波后的加速度值（X/Y/Z 三轴） */
@@ -105,8 +141,10 @@ public class CarSensorManager implements SensorEventListener {
      */
     private CarSensorManager(Context context) {
         Context appContext = context.getApplicationContext();
+        mAppContext = appContext;
         mSensorManager = (SensorManager) appContext.getSystemService(Context.SENSOR_SERVICE);
         mWindowManager = (WindowManager) appContext.getSystemService(Context.WINDOW_SERVICE);
+        mLocationManager = (LocationManager) appContext.getSystemService(Context.LOCATION_SERVICE);
         mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         mGyroscope = mSensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
     }
@@ -146,6 +184,11 @@ public class CarSensorManager implements SensorEventListener {
         if (mGyroscope != null) {
             mSensorManager.registerListener(this, mGyroscope, SENSOR_RATE);
         }
+
+        // 注册 GPS 位置更新：1 秒间隔，0 米最小距离
+        // 系统应用已持有 ACCESS_FINE_LOCATION 权限，此处做防御性检查
+        registerGpsListener();
+
         mIsRunning = true;
     }
 
@@ -160,6 +203,19 @@ public class CarSensorManager implements SensorEventListener {
             return;
         }
         mSensorManager.unregisterListener(this);
+
+        // 移除 GPS 监听器并重置 GPS 状态
+        if (mLocationListener != null) {
+            mLocationManager.removeUpdates(mLocationListener);
+            mLocationListener = null;
+        }
+        mCurrentSpeedKmh = 0f;
+        mCurrentBearing = 0f;
+        mGpsAvailable = false;
+        mPrevSpeedKmh = 0f;
+        mLastSpeedTimestamp = 0;
+        mSpeedAcceleration = 0f;
+
         mIsRunning = false;
         // 重置滤波状态，避免下次启动时残留旧数据
         resetFilterState();
@@ -364,7 +420,9 @@ public class CarSensorManager implements SensorEventListener {
         float longitudinal = clamp(mFusedLongitudinal, -1f, 1f);
         // 垂直力暂时直接从加速度计 Z 轴获取（归一化）
         float vertical = clamp(mFilteredAccel[2] / MAX_ACCEL, -1f, 1f);
-        mCurrentState = new CarMotionState(lateral, longitudinal, vertical, timestamp);
+        // 融合传感器力学数据与 GPS 速度/航向数据
+        mCurrentState = new CarMotionState(lateral, longitudinal, vertical, timestamp,
+                mCurrentSpeedKmh, mSpeedAcceleration, mCurrentBearing, mGpsAvailable);
     }
 
     /**
@@ -394,6 +452,86 @@ public class CarSensorManager implements SensorEventListener {
         mLastGyroTimestamp = 0;
         mFusedLateral = 0f;
         mFusedLongitudinal = 0f;
+        // 重置 GPS 相关状态
+        mCurrentSpeedKmh = 0f;
+        mCurrentBearing = 0f;
+        mGpsAvailable = false;
+        mPrevSpeedKmh = 0f;
+        mLastSpeedTimestamp = 0;
+        mSpeedAcceleration = 0f;
         mCurrentState = new CarMotionState();
+    }
+
+    /**
+     * 注册 GPS 位置更新监听器
+     *
+     * 使用 GPS_PROVIDER 获取高精度位置和速度数据。
+     * 系统应用默认持有 ACCESS_FINE_LOCATION 权限，
+     * 但仍做防御性检查，权限不足时静默跳过。
+     */
+    @SuppressWarnings("MissingPermission")
+    private void registerGpsListener() {
+        // 权限检查：系统应用通常已授权，未授权时静默跳过
+        if (mAppContext.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        mLocationListener = new LocationListener() {
+            /**
+             * GPS 位置更新回调
+             *
+             * 从 Location 中提取速度和航向，并基于相邻两次更新的速度差分
+             * 计算加速度（km/h/s）。时间间隔限制在 (0, 5] 秒内，
+             * 过大的间隔视为数据不连续，不计算加速度。
+             *
+             * @param location 新的 GPS 位置信息
+             */
+            @Override
+            public void onLocationChanged(Location location) {
+                // 提取速度：Location.getSpeed() 单位为 m/s，乘 3.6 转为 km/h
+                if (location.hasSpeed()) {
+                    mCurrentSpeedKmh = location.getSpeed() * 3.6f;
+                    mGpsAvailable = true;
+                }
+                // 提取航向角
+                if (location.hasBearing()) {
+                    mCurrentBearing = location.getBearing();
+                }
+
+                // 基于相邻两次 GPS 更新的速度差分计算加速度
+                float speedAccel = 0f;
+                if (mLastSpeedTimestamp > 0) {
+                    float dt = (location.getTime() - mLastSpeedTimestamp) / 1000f;
+                    // dt 在 (0, 5] 秒范围内才计算，过大间隔视为数据不连续
+                    if (dt > 0f && dt < 5f) {
+                        speedAccel = (mCurrentSpeedKmh - mPrevSpeedKmh) / dt;
+                    }
+                }
+                mSpeedAcceleration = speedAccel;
+                mPrevSpeedKmh = mCurrentSpeedKmh;
+                mLastSpeedTimestamp = location.getTime();
+            }
+
+            @Override
+            public void onStatusChanged(String provider, int status, Bundle extras) {
+                // Android Q+ 已弃用此回调，保留空实现兼容旧版
+            }
+
+            @Override
+            public void onProviderEnabled(String provider) {
+                // GPS 提供者启用，无需额外处理
+            }
+
+            @Override
+            public void onProviderDisabled(String provider) {
+                // GPS 提供者禁用，标记信号不可用
+                mGpsAvailable = false;
+            }
+        };
+
+        // 注册 GPS 更新：1000ms 间隔，0m 最小距离
+        mLocationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER, 1000L, 0f, mLocationListener);
     }
 }
